@@ -1,4 +1,4 @@
-import { readFile, realpath } from 'node:fs/promises';
+import { readFile, realpath } from './files.js';
 import { resolve } from 'node:path';
 import { z } from 'zod';
 import { readLiteralExport } from './source.js';

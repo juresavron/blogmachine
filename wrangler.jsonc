@@ -1,0 +1,7 @@
+{
+  "name": "blog-machine-local",
+  "main": "dist/server/index.js",
+  "compatibility_date": "2026-11-23",
+  "compatibility_flags": ["nodejs_compat"],
+  "d1_databases": [{ "binding": "DB", "database_name": "blog-machine", "database_id": "local-blog-machine" }]
+}

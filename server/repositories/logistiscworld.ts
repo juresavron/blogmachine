@@ -1,4 +1,4 @@
-import { readFile } from 'node:fs/promises';
+import { readFile } from './files.js';
 import { join } from 'node:path';
 import { z } from 'zod';
 import { parseSections, readLiteralExport, upsertArray } from './source.js';
