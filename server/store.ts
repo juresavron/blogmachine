@@ -63,6 +63,10 @@ export function createStore(path: string, seed = true) {
     putSite: (site: Site) => put('sites', site),
     putPost: (post: Post) => put('posts', post),
     putPublication,
+    changes: () => (db.prepare('SELECT data FROM repository_changes ORDER BY rowid DESC').all() as { data: string }[]).map(row => JSON.parse(row.data)),
+    change: (id: string) => { const row = db.prepare('SELECT data FROM repository_changes WHERE id = ?').get(id) as { data: string } | undefined; return row ? JSON.parse(row.data) : undefined; },
+    putChange: (value: { id: string }) => { db.prepare('INSERT INTO repository_changes(id,data) VALUES (?,?) ON CONFLICT(id) DO UPDATE SET data = excluded.data').run(value.id, JSON.stringify(value)); },
+    initChanges: () => { db.exec('CREATE TABLE IF NOT EXISTS repository_changes (id TEXT PRIMARY KEY, data TEXT NOT NULL)'); },
     deletePost(id: string) {
       db.exec('BEGIN');
       try {
@@ -87,3 +91,5 @@ export function createStore(path: string, seed = true) {
 }
 
 export type Store = ReturnType<typeof createStore>;
+type Awaitable<T> = T | Promise<T>;
+export type DataStore = { [K in Exclude<keyof Store, 'db'>]: (...args: Parameters<Store[K]>) => Awaitable<ReturnType<Store[K]>> };

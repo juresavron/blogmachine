@@ -1,0 +1,10 @@
+import { sqliteTable, text, integer, uniqueIndex } from 'drizzle-orm/sqlite-core';
+export const sites = sqliteTable('sites', { id: text('id').primaryKey(), data: text('data').notNull() });
+export const posts = sqliteTable('posts', { id: text('id').primaryKey(), data: text('data').notNull() });
+export const publications = sqliteTable('publications', { id: text('id').primaryKey(), postId: text('post_id').notNull(), siteId: text('site_id').notNull(), data: text('data').notNull() }, t => [uniqueIndex('publications_post_site').on(t.postId, t.siteId)]);
+export const changes = sqliteTable('repository_changes', { id: text('id').primaryKey(), data: text('data').notNull() });
+export const sessions = sqliteTable('connector_sessions', { id: text('id').primaryKey(), clientId: text('client_id').notNull(), data: text('data').notNull(), expiresAt: integer('expires_at').notNull(), version: integer('version').notNull().default(1) });
+export const clients = sqliteTable('connector_clients', { id: text('id').primaryKey(), attempt: text('attempt').notNull() });
+export const locks = sqliteTable('operation_locks', { id: text('id').primaryKey(), owner: text('owner').notNull(), expiresAt: integer('expires_at').notNull() });
+export const loginAttempts = sqliteTable('login_attempts', { id: text('id').primaryKey(), createdAt: integer('created_at').notNull() });
+export const hostingCredentials = sqliteTable('hosting_credentials', { id: text('id').primaryKey(), data: text('data').notNull() });

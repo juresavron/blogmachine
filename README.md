@@ -2,6 +2,20 @@
 
 One workspace for writing posts, publishing to your websites, and checking Google indexing.
 
+## Private hosted edition
+
+The hosted build uses Cloudflare Workers with durable D1 storage and owner-only ChatGPT sign-in. The registered Site is `appgprj_6b0416adcd288191ba5ea4e6ce511c56`; reuse this identity when publishing. Registration does not mean the app is live.
+
+Run `npm run build:hosted` to build the frontend and Worker. Publish with the Sites source workflow using `.openai/hosting.json`; D1 migrations in `drizzle/` are applied by hosting. Configure the secret `SESSION_ENCRYPTION_KEY` with a random 32-byte key encoded as base64 before deployment. It is already configured for the registered Site. Keep this key stable across deployments so existing connector sessions remain readable.
+
+Hosted drafts and preparation artifacts persist in D1. Mediašped access and refresh tokens, and the optional GitHub connection token, are encrypted using authenticated encryption before storage. The Mediašped connection expires after eight hours and can be disconnected. Passwords are never stored. Local development retains its original SQLite and in-memory session behavior described below.
+
+After publication, sign in with the owning ChatGPT account and open **Repository connections → Connect GitHub**. For private website repositories, supply a GitHub fine-grained token with **Contents: read-only** on the six listed repositories. Blog Machine validates read access to Mediašped before saving the encrypted token; other repositories verify their own access when read. This token is used only for GitHub reads. Connecting the agent's GitHub integration does not automatically connect the hosted app.
+
+The hosted app reads current repository revisions over HTTPS and rechecks the revision before preparing content. It never pushes source changes. After connecting GitHub, use **Mediašped → Connect account** for the separate website administrator login, then prepare and explicitly save an unpublished draft. Google credentials and live publishing remain separate setup steps; deployment itself publishes no articles.
+
+See [Hosting handoff](docs/hosting-handoff.md) for validation and publication state.
+
 A local application with a React/TypeScript dashboard, Express API, and persistent SQLite storage. The **Repository connections** hub covers nine repositories with four Git content adapters, two database profiles, and three empty placeholders. The separate **Websites** flow includes three clearly labeled demo websites so you can try publishing without credentials.
 
 ## Run

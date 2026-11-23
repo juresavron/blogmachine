@@ -1,4 +1,4 @@
-import { readFile, realpath, stat } from 'node:fs/promises';
+import { readFile, realpath, stat } from './files.js';
 import { isAbsolute, relative, resolve } from 'node:path';
 import { z } from 'zod';
 import { parseSections, readLiteralExport, readLiteralVariable, upsertArray, upsertObjectProperty } from './source.js';

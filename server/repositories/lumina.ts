@@ -1,4 +1,4 @@
-import { readFile } from 'node:fs/promises';
+import { readFile } from './files.js';
 import { join } from 'node:path';
 import { z } from 'zod';
 import type { ArticleSummary, ContentDraft, GitAdapter, RepoTarget } from './types.js';

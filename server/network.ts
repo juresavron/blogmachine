@@ -77,7 +77,7 @@ export const wordpressRequest: OutboundRequest = async (value, init) => {
       },
       timeout: 20_000,
     };
-    const request = https.request(url, requestOptions, response => {
+    const request = https.request(url.toString(), requestOptions, response => {
       let body = '';
       response.setEncoding('utf8');
       response.on('data', chunk => {

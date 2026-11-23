@@ -1,5 +1,5 @@
 import { resolve } from 'node:path';
-import { realpath } from 'node:fs/promises';
+import { realpath, hostedRepositorySource } from './files.js';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { logistiscworldAdapter } from './logistiscworld.js';
@@ -37,8 +37,9 @@ export function definition(id: string) {
   if (!found) throw new Error('Unknown repository connection.');
   return found;
 }
-export async function checkedRepositoryRoot(workspace: string, id: string) {
+export async function checkedRepositoryRoot(workspace: string, id: string, fresh = false) {
   definition(id);
+  if (hostedRepositorySource()) return hostedRepositorySource()!.root(id, fresh);
   const base = await realpath(workspace);
   const item = definition(id);
   const directory = item.checkoutDirectory ?? id;
@@ -50,6 +51,7 @@ export async function checkedRepositoryRoot(workspace: string, id: string) {
   return root;
 }
 export async function gitIdentity(root: string) {
+  if (hostedRepositorySource()) return hostedRepositorySource()!.identity(root);
   const [head, branch] = await Promise.all([
     execute('git', ['-C', root, 'rev-parse', '--verify', 'HEAD^{commit}']),
     execute('git', ['-C', root, 'symbolic-ref', '--quiet', '--short', 'HEAD']).catch(() => ({stdout:'detached HEAD'})),

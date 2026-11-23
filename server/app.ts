@@ -2,7 +2,7 @@ import express from 'express';
 import { randomUUID } from 'node:crypto';
 import { resolve } from 'node:path';
 import { z } from 'zod';
-import { createStore } from './store.js';
+import { createStore, type DataStore, type Store } from './store.js';
 import { googleRequest, normalizeSiteUrl, UnsentRequestError, wordpressRequest, type OutboundRequest } from './network.js';
 import { repositoryRoutes } from './repositories/routes.js';
 import type { Post, Publication, Site } from './types.js';
@@ -47,6 +47,7 @@ function checkedProperty(value: string, siteUrl: string) {
 }
 
 export type AppOptions = {
+  store?: DataStore;
   databasePath?: string;
   seed?: boolean;
   env?: NodeJS.ProcessEnv;
@@ -57,9 +58,11 @@ export type AppOptions = {
   repositoriesSessionNow?: () => number;
 };
 
+export function createApp(options: AppOptions & { store: DataStore }): { app: express.Express; store: DataStore };
+export function createApp(options?: AppOptions & { store?: undefined }): { app: express.Express; store: Store };
 export function createApp(options: AppOptions = {}) {
   const env = options.env ?? process.env;
-  const store = createStore(options.databasePath ?? env.DATABASE_PATH ?? resolve('data/blogmachine.sqlite'), options.seed ?? true);
+  const store = options.store ?? createStore(options.databasePath ?? env.DATABASE_PATH ?? resolve('data/blogmachine.sqlite'), options.seed ?? true);
   const wpRequest = options.wordpressRequest ?? wordpressRequest;
   const gRequest = options.googleRequest ?? googleRequest;
   const activePublishes = new Set<string>();
@@ -81,16 +84,16 @@ export function createApp(options: AppOptions = {}) {
     if (site.platform !== 'wordpress' || !env[`${site.credentialKey}_USERNAME`] || !env[`${site.credentialKey}_APPLICATION_PASSWORD`]) return false;
     try { return normalizeSiteUrl(env[`${site.credentialKey}_URL`] ?? '') === site.url; } catch { return false; }
   };
-  const needSite = (id: string) => { const site = store.site(id); if (!site) throw new ApiError(404, 'Website not found.'); return site; };
-  const needPost = (id: string) => { const post = store.post(id); if (!post) throw new ApiError(404, 'Post not found.'); return post; };
-  const needPublication = (id: string) => { const publication = store.publication(id); if (!publication) throw new ApiError(404, 'Publication not found.'); return publication; };
-  const checkSites = (ids: string[]) => [...new Set(ids)].map(id => needSite(id).id);
+  const needSite = async (id: string) => { const site = await store.site(id); if (!site) throw new ApiError(404, 'Website not found.'); return site; };
+  const needPost = async (id: string) => { const post = await store.post(id); if (!post) throw new ApiError(404, 'Post not found.'); return post; };
+  const needPublication = async (id: string) => { const publication = await store.publication(id); if (!publication) throw new ApiError(404, 'Publication not found.'); return publication; };
+  const checkSites = async (ids: string[]) => Promise.all([...new Set(ids)].map(async id => (await needSite(id)).id));
 
   app.get('/api/health', (_req, res) => res.json({ status: 'ok' }));
-  app.get('/api/state', (_req, res) => res.json({
-    sites: store.sites().map(site => ({ ...site, credentialsConfigured: configured(site) })),
-    posts: store.posts(),
-    publications: store.publications().map(({ remoteId: _remoteId, createOutcomeUnknown: _unknown, ...publication }) => publication),
+  app.get('/api/state', async (_req, res) => res.json({
+    sites: (await store.sites()).map(site => ({ ...site, credentialsConfigured: configured(site) })),
+    posts: (await store.posts()),
+    publications: (await store.publications()).map(({ remoteId: _remoteId, createOutcomeUnknown: _unknown, ...publication }) => publication),
     capabilities: { googleConfigured: Boolean(env.GOOGLE_ACCESS_TOKEN) },
   }));
 
@@ -131,7 +134,7 @@ export function createApp(options: AppOptions = {}) {
   });
 
   app.post('/api/sites/:id/test-connection', async (req, res) => {
-    const site = needSite(req.params.id);
+    const site = await needSite(req.params.id);
     if (site.platform !== 'wordpress') throw new ApiError(400, 'Connection checks are available for WordPress websites. Demo and manual-export websites do not have a publishing API connection.');
     if (!configured(site)) throw new ApiError(409, `Configure ${site.credentialKey}_USERNAME, ${site.credentialKey}_APPLICATION_PASSWORD, and ${site.credentialKey}_URL (exactly ${site.url}) on the server before testing this connection.`);
     let response;
@@ -168,65 +171,65 @@ export function createApp(options: AppOptions = {}) {
     });
   });
 
-  app.post('/api/sites', (req, res) => {
+  app.post('/api/sites', async (req, res) => {
     const input = siteSchema.parse(req.body);
     let url: string;
     try { url = normalizeSiteUrl(input.url); } catch (error) { throw new ApiError(400, error instanceof Error ? error.message : 'Invalid website URL.'); }
-    if (store.sites().some(site => site.url.toLowerCase() === url.toLowerCase())) throw new ApiError(409, 'This website is already connected.');
+    if ((await store.sites()).some(site => site.url.toLowerCase() === url.toLowerCase())) throw new ApiError(409, 'This website is already connected.');
     const credentialKey = input.credentialKey ?? input.name.toUpperCase().replace(/[^A-Z0-9]+/g, '_').replace(/^_|_$/g, '').slice(0, 50);
     const site: Site = { ...input, url, credentialKey: /^[A-Z]/.test(credentialKey) ? credentialKey : `SITE_${credentialKey || 'WEBSITE'}`, searchConsoleProperty: checkedProperty(input.searchConsoleProperty, url), id: randomUUID(), createdAt: now() };
-    store.putSite(site);
+    await store.putSite(site);
     res.status(201).json({ ...site, credentialsConfigured: configured(site) });
   });
-  app.delete('/api/sites/:id', (req, res) => {
-    needSite(req.params.id);
+  app.delete('/api/sites/:id', async (req, res) => {
+    await needSite(req.params.id);
     if (activePublishes.size) throw new ApiError(409, 'Wait for publishing to finish before removing a website.');
-    store.deleteSite(req.params.id);
+    await store.deleteSite(req.params.id);
     res.status(204).end();
   });
-  app.patch('/api/sites/:id', (req, res) => {
-    const existing = needSite(req.params.id);
+  app.patch('/api/sites/:id', async (req, res) => {
+    const existing = await needSite(req.params.id);
     if (activePublishes.size) throw new ApiError(409, 'Wait for publishing to finish before editing a website.');
     const input = siteSchema.pick({ name: true, credentialKey: true }).extend({ searchConsoleProperty: z.string().trim().max(2000) }).partial().strict().parse(req.body);
     const site = { ...existing, ...input, searchConsoleProperty: input.searchConsoleProperty === undefined ? existing.searchConsoleProperty : checkedProperty(input.searchConsoleProperty, existing.url) };
-    store.putSite(site);
+    await store.putSite(site);
     res.json({ ...site, credentialsConfigured: configured(site) });
   });
 
-  app.post('/api/posts', (req, res) => {
+  app.post('/api/posts', async (req, res) => {
     const input = createPostSchema.parse(req.body);
     const timestamp = now();
-    const post: Post = { ...input, slug: input.slug ?? slugify(input.title), siteIds: checkSites(input.siteIds), id: randomUUID(), status: 'draft', createdAt: timestamp, updatedAt: timestamp };
-    store.putPost(post);
+    const post: Post = { ...input, slug: input.slug ?? slugify(input.title), siteIds: await checkSites(input.siteIds), id: randomUUID(), status: 'draft', createdAt: timestamp, updatedAt: timestamp };
+    await store.putPost(post);
     res.status(201).json(post);
   });
-  app.patch('/api/posts/:id', (req, res) => {
-    const existing = needPost(req.params.id);
+  app.patch('/api/posts/:id', async (req, res) => {
+    const existing = await needPost(req.params.id);
     if (activePublishes.has(existing.id)) throw new ApiError(409, 'Wait for this post to finish publishing before editing it.');
     const input = updatePostSchema.parse(req.body);
-    const post = { ...existing, ...input, ...(input.siteIds ? { siteIds: checkSites(input.siteIds) } : {}), updatedAt: now() };
-    store.putPost(post);
+    const post = { ...existing, ...input, ...(input.siteIds ? { siteIds: await checkSites(input.siteIds) } : {}), updatedAt: now() };
+    await store.putPost(post);
     res.json(post);
   });
-  app.delete('/api/posts/:id', (req, res) => {
-    needPost(req.params.id);
+  app.delete('/api/posts/:id', async (req, res) => {
+    await needPost(req.params.id);
     if (activePublishes.has(req.params.id)) throw new ApiError(409, 'Wait for this post to finish publishing before deleting it.');
-    store.deletePost(req.params.id);
+    await store.deletePost(req.params.id);
     res.status(204).end();
   });
 
   app.post('/api/posts/:id/publish', async (req, res) => {
-    const post = needPost(req.params.id);
+    const post = await needPost(req.params.id);
     const input = z.object({ siteIds: z.array(z.string()).min(1, 'Select at least one website.').max(100) }).parse(req.body);
-    const siteIds = checkSites(input.siteIds);
+    const siteIds = await checkSites(input.siteIds);
     if (!post.content.trim()) throw new ApiError(400, 'Add post content before publishing.');
     if (activePublishes.has(post.id)) throw new ApiError(409, 'This post is already being published.');
     activePublishes.add(post.id);
     const publications: Publication[] = [];
     try {
       for (const siteId of siteIds) {
-        const site = needSite(siteId);
-        const existing = store.publications().find(item => item.postId === post.id && item.siteId === site.id);
+        const site = await needSite(siteId);
+        const existing = (await store.publications()).find(item => item.postId === post.id && item.siteId === site.id);
         const publication: Publication = { id: existing?.id ?? randomUUID(), postId: post.id, siteId: site.id, url: existing?.url ?? `${site.url}/${post.slug}/`, status: 'published', mode: site.platform === 'demo' ? 'demo' : 'live', error: null, publishedAt: now(), indexingStatus: existing?.indexingStatus ?? 'not_inspected', lastInspectedAt: existing?.lastInspectedAt ?? null, ...(existing?.remoteId ? { remoteId: existing.remoteId } : {}), ...(existing?.createOutcomeUnknown ? { createOutcomeUnknown: true } : {}) };
         try {
           if (site.platform === 'manual') throw new ApiError(400, 'This website uses manual publishing. Export or copy the post to your CMS.');
@@ -238,6 +241,8 @@ export function createApp(options: AppOptions = {}) {
             const endpoint = `${site.url}/wp-json/wp/v2/posts${existing?.remoteId ? `/${existing.remoteId}` : ''}`;
             let response;
             let result;
+            // Persist uncertainty before an outbound create, including Worker restarts.
+            if (!existing?.remoteId) await store.putPublication({ ...publication, status: 'failed', createOutcomeUnknown: true, error: 'Publishing is awaiting confirmation. Check WordPress before retrying.' });
             try {
               response = await wpRequest(endpoint, {
               method: 'POST',
@@ -260,18 +265,18 @@ export function createApp(options: AppOptions = {}) {
           publication.status = 'failed';
           publication.error = error instanceof ApiError ? error.message : 'Could not publish to this website. Check its connection and WordPress API response.';
         }
-        store.putPublication(publication.status === 'failed' && existing?.status === 'published' && existing.remoteId ? { ...existing, error: publication.error } : publication);
+        await store.putPublication(publication.status === 'failed' && existing?.status === 'published' && existing.remoteId ? { ...existing, error: publication.error } : publication);
         publications.push(publication);
       }
-      const published = store.publications().some(item => item.postId === post.id && item.status === 'published');
-      store.putPost({ ...post, siteIds: [...new Set([...post.siteIds, ...siteIds])], status: published ? 'published' : post.status, updatedAt: now() });
+      const published = (await store.publications()).some(item => item.postId === post.id && item.status === 'published');
+      await store.putPost({ ...post, siteIds: [...new Set([...post.siteIds, ...siteIds])], status: published ? 'published' : post.status, updatedAt: now() });
       res.json({ publications: publications.map(({ remoteId: _remoteId, createOutcomeUnknown: _unknown, ...publication }) => publication) });
     } finally { activePublishes.delete(post.id); }
   });
 
   app.post('/api/publications/:id/inspect', async (req, res) => {
-    const publication = needPublication(req.params.id);
-    const site = needSite(publication.siteId);
+    const publication = await needPublication(req.params.id);
+    const site = await needSite(publication.siteId);
     if (publication.mode === 'demo') throw new ApiError(400, 'Demo URLs cannot be inspected by Google. Connect and publish to a real website first.');
     if (publication.status !== 'published') throw new ApiError(400, 'Publish this post successfully before inspecting its URL.');
     if (!site.searchConsoleProperty) throw new ApiError(409, 'Add the website with its verified Search Console property before inspecting URLs.');
@@ -285,22 +290,22 @@ export function createApp(options: AppOptions = {}) {
       const result = z.object({ inspectionResult: z.object({ inspectionResultLink: z.string().optional(), indexStatusResult: z.object({ verdict: z.string().optional(), coverageState: z.string().optional(), lastCrawlTime: z.string().optional() }).optional() }) }).parse(await response.json());
       const verdict = result.inspectionResult.indexStatusResult?.verdict;
       const indexingStatus = verdict === 'PASS' ? 'indexed' : verdict === 'FAIL' || verdict === 'NEUTRAL' ? 'not_indexed' : 'inspection_failed';
-      const current = needPublication(publication.id);
+      const current = await needPublication(publication.id);
       if (current.url !== publication.url || current.publishedAt !== publication.publishedAt) throw new ApiError(409, 'This publication changed during inspection. Inspect its current URL again.');
       const updated: Publication = { ...current, indexingStatus, lastInspectedAt: now() };
-      store.putPublication(updated);
+      await store.putPublication(updated);
       const { remoteId: _remoteId, createOutcomeUnknown: _unknown, ...publicPublication } = updated;
       res.json({ publication: publicPublication, inspectionResult: result.inspectionResult });
     } catch (error) {
       if (error instanceof ApiError) throw error;
-      const current = store.publication(publication.id);
-      if (current && current.url === publication.url && current.publishedAt === publication.publishedAt) store.putPublication({ ...current, indexingStatus: 'inspection_failed', lastInspectedAt: now() });
+      const current = await store.publication(publication.id);
+      if (current && current.url === publication.url && current.publishedAt === publication.publishedAt) await store.putPublication({ ...current, indexingStatus: 'inspection_failed', lastInspectedAt: now() });
       throw new ApiError(502, 'Google inspection failed. Check the access token, Search Console property permissions, and API quota.');
     }
   });
 
   app.post('/api/sites/:id/sitemap', async (req, res) => {
-    const site = needSite(req.params.id);
+    const site = await needSite(req.params.id);
     if (site.platform === 'demo') throw new ApiError(400, 'Demo websites cannot submit sitemaps. Connect a real website first.');
     if (!site.searchConsoleProperty) throw new ApiError(409, 'A verified Search Console property is required to submit a sitemap.');
     if (!env.GOOGLE_ACCESS_TOKEN) throw new ApiError(409, 'Configure GOOGLE_ACCESS_TOKEN on the server to submit sitemaps.');
