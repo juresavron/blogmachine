@@ -1,3 +1,4 @@
+import type { RepositorySource } from './repositories/snapshots.js';
 import { DatabaseSync } from 'node:sqlite';
 import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
@@ -14,12 +15,13 @@ export function createStore(path: string, seed = true) {
     CREATE TABLE IF NOT EXISTS posts (id TEXT PRIMARY KEY, data TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS publications (id TEXT PRIMARY KEY, post_id TEXT NOT NULL, site_id TEXT NOT NULL, data TEXT NOT NULL, UNIQUE(post_id, site_id));
     CREATE TABLE IF NOT EXISTS repository_changes (id TEXT PRIMARY KEY, data TEXT NOT NULL);
+    CREATE TABLE IF NOT EXISTS repository_sources (id TEXT PRIMARY KEY, data TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL);`);
 
-  function all<T>(table: 'sites' | 'posts' | 'publications' | 'repository_changes'): T[] {
+  function all<T>(table: 'sites' | 'posts' | 'publications' | 'repository_changes' | 'repository_sources'): T[] {
     return (db.prepare(`SELECT data FROM ${table} ORDER BY rowid`).all() as { data: string }[]).map(row => JSON.parse(row.data) as T);
   }
-  function get<T>(table: 'sites' | 'posts' | 'publications' | 'repository_changes', id: string): T | undefined {
+  function get<T>(table: 'sites' | 'posts' | 'publications' | 'repository_changes' | 'repository_sources', id: string): T | undefined {
     const row = db.prepare(`SELECT data FROM ${table} WHERE id = ?`).get(id) as { data: string } | undefined;
     return row ? JSON.parse(row.data) as T : undefined;
   }
@@ -58,6 +60,10 @@ export function createStore(path: string, seed = true) {
     putRepositoryChange(change: PreparedChange) {
       db.prepare('INSERT INTO repository_changes(id, data) VALUES (?, ?) ON CONFLICT(id) DO UPDATE SET data = excluded.data').run(change.id, JSON.stringify(change));
     },
+    repositorySource: (id: string) => get<RepositorySource>('repository_sources', id),
+    putRepositorySource(source: RepositorySource) {
+      db.prepare('INSERT INTO repository_sources(id, data) VALUES (?, ?) ON CONFLICT(id) DO UPDATE SET data = excluded.data').run(source.id, JSON.stringify(source));
+    },
     deletePost(id: string) {
       db.exec('BEGIN');
       try {
@@ -82,3 +88,4 @@ export function createStore(path: string, seed = true) {
 }
 
 export type Store = ReturnType<typeof createStore>;
+

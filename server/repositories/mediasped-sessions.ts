@@ -22,7 +22,7 @@ class SessionError extends Error {
 }
 const disconnected = (message = 'Mediašped is disconnected. Connect your administrator account to continue.'): MediaspedSessionStatus => ({ authenticated: false, admin: false, source: 'none', message });
 
-export function createMediaspedSessions(options: { workspace: string; env: NodeJS.ProcessEnv; request?: typeof fetch; now?: () => number }) {
+export function createMediaspedSessions(options: { workspace: string; env: NodeJS.ProcessEnv; request?: typeof fetch; now?: () => number; repositoryRoot?: (id: string) => Promise<string> }) {
   const request = options.request ?? fetch;
   const now = options.now ?? Date.now;
   const sessions = new Map<string, BrowserSession>();
@@ -75,7 +75,7 @@ export function createMediaspedSessions(options: { workspace: string; env: NodeJ
     if (attempts.length >= 10 || globalAttempts.length >= 30) throw new SessionError(429, 'Too many connection attempts. Wait a few minutes before trying again.');
     globalAttempts.push(now()); loginAttempts.set(client, [...attempts, now()]);
   }
-  async function environment() { return databaseEnvironment('mediasped', options.workspace, options.env); }
+  async function environment() { return databaseEnvironment('mediasped', options.workspace, options.env, options.repositoryRoot); }
   async function authRequest(path: string, key: string, body?: unknown, token?: string) {
     return request(`${mediaspedProjectUrl}/auth/v1/${path}`, {
       method: 'POST', headers: { apikey: key, 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
@@ -221,3 +221,4 @@ export type MediaspedSessions = ReturnType<typeof createMediaspedSessions>;
 export function mediaspedSessionError(error: unknown) {
   return error instanceof SessionError ? { status: error.status, message: error.message } : undefined;
 }
+

@@ -1,3 +1,4 @@
+import { importedIdentity } from './snapshot-identity.js';
 import { resolve } from 'node:path';
 import { realpath } from 'node:fs/promises';
 import { execFile } from 'node:child_process';
@@ -50,9 +51,12 @@ export async function checkedRepositoryRoot(workspace: string, id: string) {
   return root;
 }
 export async function gitIdentity(root: string) {
+  const imported = importedIdentity(root);
+  if (imported) return { head: imported.head, branch: imported.branch };
   const [head, branch] = await Promise.all([
     execute('git', ['-C', root, 'rev-parse', '--verify', 'HEAD^{commit}']),
     execute('git', ['-C', root, 'symbolic-ref', '--quiet', '--short', 'HEAD']).catch(() => ({stdout:'detached HEAD'})),
   ]);
   return { head: head.stdout.trim(), branch: branch.stdout.trim() };
 }
+

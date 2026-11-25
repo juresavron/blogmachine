@@ -1,4 +1,5 @@
 import type { Post, Publication, Site } from './types.js';
+import type { RepositorySource } from './repositories/snapshots.js';
 import type { PreparedChange } from './repositories/routes.js';
 
 export type Awaitable<T> = T | Promise<T>;
@@ -19,5 +20,8 @@ export interface ContentStore {
   repositoryChanges(): Awaitable<PreparedChange[]>;
   repositoryChange(id: string): Awaitable<PreparedChange | undefined>;
   putRepositoryChange(change: PreparedChange): Awaitable<void>;
+  repositorySource?(id: string): Awaitable<RepositorySource | undefined>;
+  putRepositorySource?(source: RepositorySource): Awaitable<void>;
   close(): Awaitable<void>;
 }
+
