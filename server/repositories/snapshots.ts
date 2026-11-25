@@ -4,7 +4,8 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { z } from 'zod';
 import type { ContentStore } from '../storage.js';
-import { checkedRepositoryRoot, definition, gitAdapters } from './catalog.js';
+import { checkedRepositoryRoot, definition, gitAdapters, localRepositoryRoot, RepositoryCheckoutUnavailableError } from './catalog.js';
+import type { GitHubSourceOptions } from './github-source.js';
 import { assertMediaspedSourceSlugAvailable } from './media-source.js';
 import { registerImportedIdentity } from './snapshot-identity.js';
 
@@ -39,7 +40,7 @@ export function validateSourceSnapshot(id: string, input: unknown): SourceSnapsh
   return source;
 }
 
-export function createRepositorySources(store: ContentStore, workspace: string) {
+export function createRepositorySources(store: ContentStore, workspace: string, options: GitHubSourceOptions = {}) {
   const roots = new Map<string, Promise<string>>();
   async function materialize(source: RepositorySource) {
     const fingerprint = createHash('sha256').update(JSON.stringify(source)).digest('hex');
@@ -62,13 +63,18 @@ export function createRepositorySources(store: ContentStore, workspace: string) 
   }
   return {
     async root(id: string) {
-      try { return await checkedRepositoryRoot(workspace, id); }
-      catch {
-        const stored = await store.repositorySource?.(id);
-        if (!stored) throw new Error('Website source is unavailable. Import its source snapshot or restore its checkout.');
+      try { return await localRepositoryRoot(workspace, id); }
+      catch (error) {
+        if (!(error instanceof RepositoryCheckoutUnavailableError)) throw error;
+      }
+      const stored = await store.repositorySource?.(id);
+      if (stored !== undefined) {
+        if (!stored || typeof stored !== 'object') throw new Error('The saved website source is invalid. Import a fresh source snapshot before preparing content.');
         const checked = validateSourceSnapshot(id, { version: stored.version, repository: stored.repository, head: stored.head, branch: stored.branch, files: stored.files, assets: stored.assets });
         return materialize({ ...checked, id, importedAt: stored.importedAt });
       }
+      // Auth, integrity and stale-HEAD errors from the remote provider must stay visible.
+      return checkedRepositoryRoot(workspace, id, options);
     },
     async import(id: string, input: unknown) {
       if (!store.putRepositorySource) throw new Error('This workspace does not support saved website sources.');
