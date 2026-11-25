@@ -280,15 +280,21 @@ test('Media remote errors expose no secrets and do not mark the artifact saved o
   assert.deepEqual((await f.api('/state')).data.publications, []);
 });
 
-test('saving a non-Media artifact and unknown IDs are rejected before any outbound request', async t => {
+test('Trgovina without an administrator, unsupported artifacts and unknown IDs are rejected before outbound writes', async t => {
   const f = await fixture(t);
   const trgovina = await f.addRepository('trgovina', 'juresavron/trgovina');
+  await writeFile(join(trgovina.root, 'wrangler.jsonc'), JSON.stringify({ vars: { SUPABASE_URL: 'https://cybwzhgretztcjfdefoy.supabase.co', SUPABASE_ANON_KEY: 'trgovina-public-fixture-key' } }));
   const post = await f.createDraft();
   const prepared = await f.api('/repositories/trgovina/prepare', 'POST', { postId: post.id, targetKey: 'bazen', expectedHead: trgovina.head, metadata: {} });
   assert.equal(prepared.status, 201);
   const rejected = await f.api(`/repository-changes/${prepared.data.change.id}/save-draft`, 'POST');
   assert.equal(rejected.status, 400);
-  assert.match(rejected.data.error, /external admin workflow/i);
+  assert.match(rejected.data.error, /administrator account/i);
+  const change = f.store.repositoryChange(prepared.data.change.id)!;
+  f.store.putRepositoryChange({ ...change, id: 'unsupported-artifact', repositoryId: 'lumina', format: 'git-patch' });
+  const unsupported = await f.api('/repository-changes/unsupported-artifact/save-draft', 'POST');
+  assert.equal(unsupported.status, 400);
+  assert.match(unsupported.data.error, /external admin workflow/i);
   assert.equal((await f.api('/repository-changes/missing/save-draft', 'POST')).status, 404);
   assert.equal(f.requests.length, 0);
   assert.equal(f.rows.size, 0);
@@ -351,3 +357,4 @@ test('missing or symlinked static catalogs fail closed before a remote draft sav
   assert.equal(f.requests.length, 0);
   assert.equal(f.rows.size, 0);
 });
+
