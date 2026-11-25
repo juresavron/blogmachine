@@ -10,7 +10,7 @@ import { definitions, definition, gitAdapters, checkedRepositoryRoot, gitIdentit
 import { assertMediaspedSourceSlugAvailable } from './media-source.js';
 import { databaseEnvironment } from './environment.js';
 import { listMediaspedArticles, prepareMediaspedDraft, createMediaspedDraft } from './mediasped.js';
-import { listTrgovinaArticles, prepareTrgovinaDraft, testTrgovinaConnection } from './trgovina.js';
+import { listTrgovinaArticles, prepareTrgovinaDraft, testTrgovinaConnection, TrgovinaReadError } from './trgovina.js';
 import type { Awaitable, ContentStore } from '../storage.js';
 import { createMediaspedSessions, mediaspedSessionError } from './mediasped-sessions.js';
 
@@ -64,7 +64,7 @@ export function repositoryRoutes(store: ContentStore, options: { workspace: stri
     if (!target) throw new RepositoryError(400, 'Select a configured website or country.');
     if (item.kind === 'database') {
       try { const env = await databaseEnvironment(item.id, options.workspace, options.env, rootFor); return res.json({ articles: item.id === 'mediasped' ? await listMediaspedArticles(targetKey, env, options.request) : await listTrgovinaArticles(targetKey, env, options.request), sourceHash: '', message: 'Published database articles; not static buying guides.' }); }
-      catch { throw new RepositoryError(409, 'Could not read the database blog. Check its public Supabase configuration and network access. Repository access does not grant database admin access.'); }
+      catch (error) { if (error instanceof TrgovinaReadError) throw new RepositoryError(409, error.message); throw new RepositoryError(409, 'Could not read the database blog. Check its public Supabase configuration and network access. Repository access does not grant database admin access.'); }
     }
     const adapter = gitAdapters[item.id];
     if (!adapter) throw new RepositoryError(400, 'This repository has no supported content adapter.');

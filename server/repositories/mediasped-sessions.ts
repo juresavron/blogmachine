@@ -13,6 +13,7 @@ const RATE_WINDOW = 15 * 60 * 1000;
 const credentialsSchema = z.object({ email: z.string().trim().email().max(254), password: z.string().min(1).max(1024) }).strict();
 const tokenSchema = z.object({ access_token: z.string().min(1).max(16_384), refresh_token: z.string().min(1).max(16_384), expires_in: z.number().int().positive().max(86_400) });
 type Tokens = z.infer<typeof tokenSchema>;
+interface EmailChallenge { email: string; expiresAt: number; }
 interface BrowserSession { clientId: string; accessToken: string; refreshToken: string; tokenExpiresAt: number; expiresAt: number; checking?: Promise<void>; }
 export interface MediaspedSessionStatus {
   authenticated: boolean; admin: boolean; source: 'browser' | 'environment' | 'none'; expiresAt?: string; message: string;
@@ -27,6 +28,7 @@ export function createMediaspedSessions(options: { workspace: string; env: NodeJ
   const now = options.now ?? Date.now;
   const sessions = new Map<string, BrowserSession>();
   const pendingLogins = new Map<string, string>();
+  const emailChallenges = new Map<string, EmailChallenge>();
   const loginAttempts = new Map<string, number[]>();
   let globalAttempts: number[] = [];
   const router = Router();
@@ -53,6 +55,7 @@ export function createMediaspedSessions(options: { workspace: string; env: NodeJ
   function forget(id: string | undefined) { if (id) sessions.delete(id); }
   function forgetClient(clientId: string) {
     pendingLogins.delete(clientId);
+    emailChallenges.delete(clientId);
     for (const [id, session] of sessions) if (session.clientId === clientId) sessions.delete(id);
   }
   function current(id: string, session: BrowserSession) {
@@ -62,6 +65,7 @@ export function createMediaspedSessions(options: { workspace: string; env: NodeJ
     }
   }
   function prune() {
+    for (const [client, challenge] of emailChallenges) if (challenge.expiresAt <= now()) emailChallenges.delete(client);
     for (const [id, session] of sessions) if (session.expiresAt <= now()) sessions.delete(id);
     for (const [client, attempts] of loginAttempts) {
       const recent = attempts.filter(time => time > now() - RATE_WINDOW);
@@ -197,6 +201,70 @@ export function createMediaspedSessions(options: { workspace: string; env: NodeJ
       if (clientId && pendingLogins.get(clientId) === attempt) pendingLogins.delete(clientId);
     }
   });
+  router.post('/connections/mediasped/email/start', async (req, res) => {
+    const clientId = cookie(req, CLIENT_COOKIE);
+    try {
+      rateLimit(req.ip ?? 'local');
+      if (!clientId) { markClient(req, res); throw new SessionError(428, 'Refresh your connection status before signing in.'); }
+      const input = z.object({ email: z.string().trim().email().max(254) }).strict().safeParse(req.body);
+      req.body = undefined;
+      if (!input.success) throw new SessionError(400, 'Enter your existing Mediašped account email.');
+      forgetClient(clientId);
+      const challenge = { email: input.data.email, expiresAt: now() + 10 * 60 * 1000 };
+      emailChallenges.set(clientId, challenge);
+      const { key } = mediaspedConfiguration(await environment(), false);
+      // Existing accounts only. This never creates an account or changes a password.
+      const response = await authRequest('otp', key, { email: challenge.email, create_user: false });
+      if (!response.ok || emailChallenges.get(clientId) !== challenge) throw new SessionError(503, 'Email sign-in is unavailable. Try again later or use your existing password.');
+      res.json({ sent: true, message: 'If this existing account supports email sign-in, check its inbox for the sign-in link or code.' });
+    } catch (error) {
+      req.body = undefined;
+      const code = error instanceof SessionError ? error.status : 503;
+      res.status(code).json({ error: error instanceof SessionError ? error.message : 'Could not request email sign-in. Try again later.' });
+    }
+  });
+  router.post('/connections/mediasped/email/verify', async (req, res) => {
+    const previous = cookie(req);
+    const clientId = cookie(req, CLIENT_COOKIE);
+    const attempt = opaqueId();
+    let candidate: Tokens | undefined, key: string | undefined;
+    try {
+      rateLimit(req.ip ?? 'local');
+      const challenge = clientId ? emailChallenges.get(clientId) : undefined;
+      if (!clientId || !challenge || challenge.expiresAt <= now()) throw new SessionError(401, 'Request a new email sign-in link from this browser.');
+      const input = z.object({ proof: z.string().trim().min(1).max(4000) }).strict().safeParse(req.body);
+      req.body = undefined;
+      if (!input.success) throw new SessionError(400, 'Enter the sign-in code or original Supabase sign-in link.');
+      const proof = mediaspedEmailProof(input.data.proof, challenge.email);
+      pendingLogins.set(clientId, attempt);
+      const env = await environment();
+      key = mediaspedConfiguration(env, false).key;
+      const response = await authRequest('verify', key, proof);
+      if (!response.ok) throw new SessionError(401, 'The email sign-in link or code is invalid or expired. Request a new one.');
+      const payload: unknown = await response.json();
+      candidate = tokenSchema.parse(payload);
+      const account = z.object({ user: z.object({ email: z.string().email() }) }).parse(payload);
+      if (account.user.email.toLowerCase() !== challenge.email.toLowerCase()) throw new SessionError(401, 'Use the sign-in email for the account you requested.');
+      await verify(env, candidate.access_token);
+      if (pendingLogins.get(clientId) !== attempt || emailChallenges.get(clientId) !== challenge || req.aborted || res.destroyed) throw new SessionError(401, 'This connection attempt was canceled.');
+      prune();
+      if (sessions.size >= 100) throw new SessionError(503, 'The connection service is busy. Try again later.');
+      const id = opaqueId();
+      const session: BrowserSession = { clientId, accessToken: candidate.access_token, refreshToken: candidate.refresh_token, tokenExpiresAt: now() + candidate.expires_in * 1000, expiresAt: now() + SESSION_TTL };
+      sessions.set(id, session);
+      emailChallenges.delete(clientId);
+      markClient(req, res); setMarker(req, res, id);
+      res.json(browserStatus(session));
+    } catch (error) {
+      req.body = undefined;
+      const code = error instanceof SessionError && [400, 401, 429, 503].includes(error.status) ? error.status : 401;
+      const message = error instanceof SessionError ? error.message : 'Could not verify email sign-in and administrator access.';
+      res.status(code).json({ ...disconnected(message), error: message });
+      if (candidate && key) void revoke(candidate.access_token, key);
+    } finally {
+      if (clientId && pendingLogins.get(clientId) === attempt) pendingLogins.delete(clientId);
+    }
+  });
   router.post('/connections/mediasped/logout', async (req, res) => {
     const id = cookie(req);
     const session = id ? sessions.get(id) : undefined;
@@ -222,3 +290,13 @@ export function mediaspedSessionError(error: unknown) {
   return error instanceof SessionError ? { status: error.status, message: error.message } : undefined;
 }
 
+
+/** Accept a code or a link from this exact provider; never fetch a pasted URL. */
+export function mediaspedEmailProof(proof: string, email: string): { email: string; token: string; type: 'email' } | { token_hash: string; type: 'email' } {
+  if (/^\d{6,10}$/.test(proof)) return { email, token: proof, type: 'email' };
+  let url: URL;
+  try { url = new URL(proof); } catch { throw new SessionError(400, 'Enter the sign-in code or original Supabase sign-in link.'); }
+  const token = url.searchParams.get('token') ?? url.searchParams.get('token_hash');
+  if (url.origin !== mediaspedProjectUrl || url.username || url.password || url.pathname !== '/auth/v1/verify' || !['email', 'magiclink'].includes(url.searchParams.get('type') ?? '') || !token || !/^[a-zA-Z0-9_-]{20,256}$/.test(token)) throw new SessionError(400, 'Use the original Mediašped Supabase sign-in link from your email.');
+  return { token_hash: token, type: 'email' };
+}

@@ -48,7 +48,7 @@ See [Connecting your websites](docs/connecting-websites.md) for each adapter, re
 
 ## Connect Mediašped
 
-Open **Repository connections → Mediašped → Connect account** and sign in with your existing Mediašped administrator email and password. Blog Machine verifies the account and administrator role; it does not create an account. Review a prepared draft before choosing the separate **Save website draft** action. Publication still happens in the existing Mediašped editor.
+Open **Repository connections → Mediašped → Connect account** and sign in with your existing Mediašped administrator email and password, or use the email sign-in link/code option. Blog Machine verifies the account and administrator role; it does not create an account. Review a prepared draft before choosing the separate **Save website draft** action. Publication still happens in the existing Mediašped editor.
 
 Access and refresh tokens stay in server memory, and the browser receives only an opaque HttpOnly session cookie. Passwords and tokens are not saved in SQLite, files, or browser storage. Sessions refresh automatically while usable; reconnect after a server restart, failed refresh, or the eight-hour session limit. **Disconnect** ends the connection for this browser and disables its environment-token fallback. The optional `MEDIASPED_SUPABASE_ACCESS_TOKEN` environment variable is for headless use, not normal account setup.
 
