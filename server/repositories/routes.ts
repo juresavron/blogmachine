@@ -9,11 +9,15 @@ import { assertMediaspedSourceSlugAvailable } from './media-source.js';
 import { databaseEnvironment } from './environment.js';
 import { listMediaspedArticles, prepareMediaspedDraft, createMediaspedDraft } from './mediasped.js';
 import { listTrgovinaArticles, prepareTrgovinaDraft, testTrgovinaConnection } from './trgovina.js';
-import type { Store } from '../store.js';
+import type { Awaitable, ContentStore } from '../storage.js';
 import { createMediaspedSessions, mediaspedSessionError } from './mediasped-sessions.js';
 
 const hash = (text: string) => createHash('sha256').update(text).digest('hex');
 class RepositoryError extends Error { constructor(public status: number, message: string) { super(message); } }
+async function stored<T>(operation: () => Awaitable<T>): Promise<T> {
+  try { return await operation(); }
+  catch { throw new RepositoryError(503, 'Workspace storage is temporarily unavailable. Please try again.'); }
+}
 const plain = z.string().trim().min(1).max(200_000).refine(value => !value.includes('<'), 'Use plain text without < characters in repository content.');
 const metadataSchema = z.record(z.string().max(80), z.unknown());
 export type PreparedChange = {
@@ -24,12 +28,10 @@ export type PreparedChange = {
 };
 const publicChange = ({ artifact: _artifact, ...item }: PreparedChange) => ({ ...item, downloadUrl: `/api/repository-changes/${item.id}/download` });
 
-export function repositoryRoutes(store: Store, options: { workspace: string; env: NodeJS.ProcessEnv; request?: typeof fetch; now?: () => number }) {
+export function repositoryRoutes(store: ContentStore, options: { workspace: string; env: NodeJS.ProcessEnv; request?: typeof fetch; now?: () => number }) {
   const router = Router();
   const mediaspedSessions = createMediaspedSessions(options);
   router.use(mediaspedSessions.router);
-  store.db.exec('CREATE TABLE IF NOT EXISTS repository_changes (id TEXT PRIMARY KEY, data TEXT NOT NULL)');
-  const getChanges = () => (store.db.prepare('SELECT data FROM repository_changes ORDER BY rowid DESC').all() as {data:string}[]).map(row => JSON.parse(row.data) as PreparedChange);
   async function source(root: string, relativePath: string) {
     const path = await realpath(resolve(root, relativePath));
     if (path !== resolve(root, relativePath)) throw new RepositoryError(409, 'The content file is a symlink. Review it before preparing changes.');
@@ -45,7 +47,7 @@ export function repositoryRoutes(store: Store, options: { workspace: string; env
       try { const root = await checkedRepositoryRoot(options.workspace, item.id); return { ...item, ...await gitIdentity(root), available: true, message: item.kind === 'database' ? 'Schema inspected; database access is separate.' : 'Local source is available. Live deployment is not verified.' }; }
       catch { return { ...item, available: false, branch: null, head: null, message: 'Repository checkout is unavailable. Restore it before preparing content.' }; }
     }));
-    res.json({ repositories, changes: getChanges().map(publicChange) });
+    res.json({ repositories, changes: (await stored(() => store.repositoryChanges())).map(publicChange) });
   });
   router.get('/repositories/:id/articles', async (req, res) => {
     const item = definition(req.params.id);
@@ -79,7 +81,7 @@ export function repositoryRoutes(store: Store, options: { workspace: string; env
     const input = z.object({ postId: z.string().min(1), targetKey: z.string().min(1), expectedHead: z.string().regex(/^[a-f0-9]{40}$/), expectedSourceHash: z.string().regex(/^[a-f0-9]{64}$/).optional(), metadata: metadataSchema.default({}) }).parse(req.body);
     const target = item.targets.find(t => t.key === input.targetKey);
     if (!target) throw new RepositoryError(400, 'Select a configured website or country.');
-    const post = store.post(input.postId);
+    const post = await stored(() => store.post(input.postId));
     if (!post) throw new RepositoryError(404, 'The selected Blog Machine draft no longer exists.');
     const draft = z.object({ title: plain.max(250), slug: z.string().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/).max(200), excerpt: z.string().trim().min(1, 'Add a short description to this post before preparing a repository change.').max(1000).refine(value => !value.includes('<'), 'Use plain text in the short description.'), content: plain }).parse(post);
     // Never interpolate unvalidated metadata into executable source or markup.
@@ -112,13 +114,12 @@ export function repositoryRoutes(store: Store, options: { workspace: string; env
       relativePath = changes.map(c => c.relativePath).join(', '); articleUrl = change.articleUrl;
     }
     const prepared: PreparedChange = { id: randomUUID(), repositoryId: item.id, targetKey: target.key, postId: post.id, postTitle: post.title, format, relativePath, articleUrl, baseHead: identity.head, sourceHash, createdAt: new Date().toISOString(), status: 'prepared', instructions: item.deployment, warnings: item.warnings, artifact };
-    store.db.prepare('INSERT INTO repository_changes(id,data) VALUES (?,?)').run(prepared.id, JSON.stringify(prepared));
+    await stored(() => store.putRepositoryChange(prepared));
     res.status(201).json({ change: publicChange(prepared), preview: artifact });
   });
   router.post('/repository-changes/:id/save-draft', async (req, res) => {
-    const row = store.db.prepare('SELECT data FROM repository_changes WHERE id = ?').get(req.params.id) as {data:string}|undefined;
-    if (!row) throw new RepositoryError(404, 'Prepared draft not found.');
-    const change = JSON.parse(row.data) as PreparedChange;
+    const change = await stored(() => store.repositoryChange(req.params.id));
+    if (!change) throw new RepositoryError(404, 'Prepared draft not found.');
     if (change.repositoryId !== 'mediasped' || change.format !== 'database-draft') throw new RepositoryError(400, 'This connection requires a reviewed Git/deployment or external admin workflow.');
     const root = await checkedRepositoryRoot(options.workspace, change.repositoryId);
     const payload = JSON.parse(change.artifact);
@@ -127,13 +128,12 @@ export function repositoryRoutes(store: Store, options: { workspace: string; env
     // Never overwrite an existing article or turn a draft into a publication.
     await createMediaspedDraft(payload, connection.env, connection.request);
     const saved = { ...change, remoteDraftSavedAt: new Date().toISOString() };
-    store.db.prepare('UPDATE repository_changes SET data = ? WHERE id = ?').run(JSON.stringify(saved), saved.id);
+    await stored(() => store.putRepositoryChange(saved));
     res.json({ change: publicChange(saved), message: 'Unpublished website draft saved. Review and publish it through the existing Mediašped editor.' });
   });
-  router.get('/repository-changes/:id/download', (req, res) => {
-    const row = store.db.prepare('SELECT data FROM repository_changes WHERE id = ?').get(req.params.id) as {data:string}|undefined;
-    if (!row) throw new RepositoryError(404, 'Prepared change not found.');
-    const item = JSON.parse(row.data) as PreparedChange;
+  router.get('/repository-changes/:id/download', async (req, res) => {
+    const item = await stored(() => store.repositoryChange(req.params.id));
+    if (!item) throw new RepositoryError(404, 'Prepared change not found.');
     res.type(item.format === 'git-patch' ? 'text/x-diff' : 'application/json');
     res.attachment(`${item.repositoryId}-${item.targetKey}-${item.id.slice(0,8)}.${item.format === 'git-patch' ? 'patch' : 'json'}`);
     res.send(item.artifact);

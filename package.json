@@ -13,9 +13,12 @@
     "node": ">=24.14.0"
   },
   "dependencies": {
+    "@netlify/database": "^2.0.4",
+    "@netlify/server": "^0.1.6",
     "diff": "^9.0.0",
     "express": "^5.1.0",
     "lucide-react": "^0.468.0",
+    "pg": "^8.23.1",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "zod": "^4.0.0"
@@ -23,6 +26,7 @@
   "devDependencies": {
     "@types/express": "^5.0.0",
     "@types/node": "^24.0.0",
+    "@types/pg": "^8.23.1",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
     "@vitejs/plugin-react": "^4.3.4",

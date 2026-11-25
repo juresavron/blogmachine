@@ -7,3 +7,5 @@ data/
 *.log
 playwright-report/
 test-results/
+
+.netlify/

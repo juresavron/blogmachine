@@ -23,6 +23,8 @@ npm start       # Serve the built app and API on port 3001
 
 Production mode still runs a **single-user local application**, not an authenticated public service. Do not expose it to the public internet without adding authentication and access controls.
 
+For hosted production, see [Netlify deployment](docs/netlify-deployment.md). It uses Netlify Server, private project access, and durable Postgres storage; the local commands above retain SQLite.
+
 ## What works
 
 - Create, edit, search, filter, delete, and export plain-text posts.
