@@ -2,13 +2,13 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
-import { checkedRepositoryRoot, definition, gitIdentity } from '../server/repositories/catalog.js';
+import { localRepositoryRoot, definition, gitIdentity } from '../server/repositories/catalog.js';
 import { sourcePaths, validateSourceSnapshot } from '../server/repositories/snapshots.js';
 const execute = promisify(execFile);
 const argument = (name: string) => { const index = process.argv.indexOf(name); return index < 0 ? undefined : process.argv[index + 1]; };
 const id = argument('--id');
 if (!id) throw new Error('Supply --id and optionally --workspace and --output.');
-const root = await checkedRepositoryRoot(argument('--workspace') ?? '/workspace', id);
+const root = await localRepositoryRoot(argument('--workspace') ?? '/workspace', id);
 const identity = await gitIdentity(root);
 const files = await Promise.all(sourcePaths(id).map(async path => {
   const content = (await execute('git', ['-C', root, 'show', `${identity.head}:${path}`], { maxBuffer: 3_000_000 })).stdout;
@@ -20,7 +20,7 @@ const assets = id === 'ocenagor' ? (await execute('git', ['-C', root, 'ls-tree',
   if (!match) throw new Error('Blog image metadata must describe regular Git files.');
   return { sha: match[1], size: Number(match[2]), path: match[3] };
 }).filter(asset => asset.size > 0) : [];
-const source = validateSourceSnapshot(id, { version: 1, repository: definition(id).repository, ...identity, files, assets });
+const source = validateSourceSnapshot(id, { version: 1, repository: definition(id).repository, head: identity.head, branch: identity.branch, files, assets });
 const output = resolve(argument('--output') ?? `source-snapshots/${id}.json`);
 await mkdir(dirname(output), { recursive: true });
 await writeFile(output, JSON.stringify(source), { mode: 0o600 });

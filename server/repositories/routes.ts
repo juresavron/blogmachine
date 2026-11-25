@@ -6,13 +6,14 @@ import { readFile, realpath } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { z } from 'zod';
 import { createTwoFilesPatch } from 'diff';
-import { definitions, definition, gitAdapters, checkedRepositoryRoot, gitIdentity } from './catalog.js';
+import { definitions, definition, gitAdapters, gitIdentity } from './catalog.js';
 import { assertMediaspedSourceSlugAvailable } from './media-source.js';
 import { databaseEnvironment } from './environment.js';
 import { listMediaspedArticles, prepareMediaspedDraft, createMediaspedDraft } from './mediasped.js';
 import { listTrgovinaArticles, prepareTrgovinaDraft, testTrgovinaConnection, TrgovinaReadError } from './trgovina.js';
 import type { Awaitable, ContentStore } from '../storage.js';
 import { createMediaspedSessions, mediaspedSessionError } from './mediasped-sessions.js';
+import { GitHubSourceError } from './github-source.js';
 
 const hash = (text: string) => createHash('sha256').update(text).digest('hex');
 class RepositoryError extends Error { constructor(public status: number, message: string) { super(message); } }
@@ -32,7 +33,7 @@ const publicChange = ({ artifact: _artifact, ...item }: PreparedChange) => ({ ..
 
 export function repositoryRoutes(store: ContentStore, options: { workspace: string; env: NodeJS.ProcessEnv; request?: typeof fetch; now?: () => number }) {
   const router = Router();
-  const sources = createRepositorySources(store, options.workspace);
+  const sources = createRepositorySources(store, options.workspace, options);
   const rootFor = (id: string) => sources.root(id);
   const mediaspedSessions = createMediaspedSessions({ ...options, repositoryRoot: rootFor });
   router.use(mediaspedSessions.router);
@@ -48,8 +49,8 @@ export function repositoryRoutes(store: ContentStore, options: { workspace: stri
   router.get('/repositories', async (_req, res) => {
     const repositories = await Promise.all(definitions().map(async item => {
       if (item.kind === 'empty') return { ...item, available: false, branch: null, head: null, message: 'Empty repository; no content adapter.' };
-      try { const root = await rootFor(item.id); return { ...item, ...await gitIdentity(root), available: true, source: importedIdentity(root) ? 'snapshot' : 'checkout', importedAt: importedIdentity(root)?.importedAt, message: importedIdentity(root) ? 'Saved source snapshot. Refresh it after website source changes; live publication and administrator access are separate.' : item.kind === 'database' ? 'Schema inspected; database access is separate.' : 'Local source is available. Live deployment is not verified.' }; }
-      catch { return { ...item, available: false, branch: null, head: null, message: 'Repository checkout is unavailable. Restore it before preparing content.' }; }
+      try { const root = await rootFor(item.id); const identity = await gitIdentity(root); const imported = importedIdentity(root); return { ...item, ...identity, available: true, source: imported ? 'snapshot' : identity.sourceMode === 'github' ? 'github' : 'checkout', importedAt: imported?.importedAt, message: imported ? 'Saved source snapshot. Refresh it after website source changes; live publication and administrator access are separate.' : item.kind === 'database' ? 'Schema inspected; database access is separate.' : identity.sourceMode === 'github' ? 'Read-only source from GitHub. Live deployment is not verified.' : 'Local source is available. Live deployment is not verified.' }; }
+      catch (error) { return { ...item, available: false, branch: null, head: null, ...(error instanceof GitHubSourceError ? { sourceMode: 'github', sourceRequiresToken: error.code === 'token_missing' } : {}), message: error instanceof GitHubSourceError ? error.message : 'Website source is unavailable. Import a fresh source snapshot or restore its verified checkout.' }; }
     }));
     res.json({ repositories, changes: (await stored(() => store.repositoryChanges())).map(publicChange) });
   });
@@ -71,7 +72,9 @@ export function repositoryRoutes(store: ContentStore, options: { workspace: stri
     const root = await rootFor(item.id);
     const before = await snapshot(root, target);
     const articles = await adapter.list(root, targetKey);
-    res.json({ articles, sourceHash: before.hash, message: 'Read from the selected source revision; publication on the live website is not verified.' });
+    const sourceArticles = item.id === 'ocenagor' ? await adapter.list(root, 'si') : undefined;
+    const identity = await gitIdentity(root);
+    res.json({ articles, ...(sourceArticles ? { sourceArticles } : {}), ...identity, sourceHash: before.hash, message: identity.sourceMode === 'github' ? 'Read-only source from GitHub at the displayed commit. Live publication is not verified.' : identity.sourceMode === 'snapshot' ? 'Read from the saved source snapshot. Refresh it after website source changes; live publication is not verified.' : 'Read from the local checkout; publication on the live website is not verified.' });
   });
   router.post('/repositories/:id/test-connection', async (req, res) => {
     const item = definition(req.params.id);
@@ -82,7 +85,8 @@ export function repositoryRoutes(store: ContentStore, options: { workspace: stri
     if (item.kind === 'database') { const env = await databaseEnvironment(item.id, options.workspace, options.env, rootFor); return res.json(await testTrgovinaConnection(env, options.request)); }
     if (item.kind === 'empty') throw new RepositoryError(409, 'This repository has no website code yet.');
     const root = await rootFor(item.id);
-    res.json({ readable: true, ...await gitIdentity(root), message: 'Website source is readable. This does not verify deployment or live publishing access.' });
+    const identity = await gitIdentity(root);
+    res.json({ readable: true, ...identity, message: identity.sourceMode === 'github' ? 'GitHub source is readable. This does not verify deployment or live publishing access.' : identity.sourceMode === 'snapshot' ? 'Saved source snapshot is readable. Its displayed commit does not automatically follow GitHub; deployment and live publishing access are separate.' : 'Repository checkout is readable. This does not verify deployment or live publishing access.' });
   });
   router.post('/repositories/:id/prepare', async (req, res) => {
     const item = definition(req.params.id);
@@ -121,7 +125,7 @@ export function repositoryRoutes(store: ContentStore, options: { workspace: stri
       if (!artifact) throw new RepositoryError(409, 'This content already matches the source. There is no new change to prepare.');
       relativePath = changes.map(c => c.relativePath).join(', '); articleUrl = change.articleUrl;
     }
-    const prepared: PreparedChange = { id: randomUUID(), repositoryId: item.id, targetKey: target.key, postId: post.id, postTitle: post.title, format, relativePath, articleUrl, baseHead: identity.head, sourceHash, createdAt: new Date().toISOString(), status: 'prepared', instructions: item.deployment, warnings: item.warnings, artifact };
+    const prepared: PreparedChange = { id: randomUUID(), repositoryId: item.id, targetKey: target.key, postId: post.id, postTitle: post.title, format, relativePath, articleUrl, baseHead: identity.head, sourceHash, createdAt: new Date().toISOString(), status: 'prepared', instructions: target.deployment ?? item.deployment, warnings: item.warnings, artifact };
     await stored(() => store.putRepositoryChange(prepared));
     res.status(201).json({ change: publicChange(prepared), preview: artifact });
   });
@@ -149,6 +153,7 @@ export function repositoryRoutes(store: ContentStore, options: { workspace: stri
   router.use((error: unknown, _req: import('express').Request, res: import('express').Response, next: import('express').NextFunction) => {
     const sessionError = mediaspedSessionError(error);
     if (sessionError) return res.status(sessionError.status).json({ error: sessionError.message });
+    if (error instanceof GitHubSourceError) return res.status(error.code === 'source_changed' || error.code === 'cache_invalid' ? 409 : error.code === 'token_missing' ? 428 : 503).json({ error: error.message });
     if (error instanceof RepositoryError) return res.status(error.status).json({error:error.message});
     if (error instanceof z.ZodError) return res.status(400).json({error:error.issues.map(issue=>issue.message).join(' ')});
     if (error instanceof Error) return res.status(400).json({error: 'Could not prepare or read this repository content. ' + (error.message.startsWith('ENOENT') ? 'The content file is unavailable.' : error.message.slice(0,300)) });
@@ -156,4 +161,3 @@ export function repositoryRoutes(store: ContentStore, options: { workspace: stri
   });
   return router;
 }
-
