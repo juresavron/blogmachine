@@ -275,4 +275,4 @@
 .repo-missing-versions>ul { margin: 0; padding: 0; list-style: none; display: grid; gap: 11px; max-height: 250px; overflow: auto; }
 .repo-missing-versions li { border: 1px solid #e6eadc; border-radius: 6px; background: #fafbf6; padding: 11px 13px; }
 .repo-missing-versions li>strong { display: block; font-size: 11px; font-weight: 550; line-height: 1.8; color: #60734b; }
-.repo-missing-versions li>code { display: block; font-size: 10px; line-height: 1.8; color: #667b51; overflow-wrap: anywhere; }
+.repo-missing-versions li>code { display: block; font-size: 10px; line-height: 1.8; color: #52653e; overflow-wrap: anywhere; }
