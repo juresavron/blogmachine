@@ -1,9 +1,10 @@
+import type { RepositorySource } from './repositories/snapshots.js';
 import type { ContentStore } from './storage.js';
 import type { Post, Publication, Site } from './types.js';
 import type { PreparedChange } from './repositories/routes.js';
 import { demoContent } from './seed.js';
 
-type Table = 'blogmachine_sites' | 'blogmachine_posts' | 'blogmachine_publications' | 'blogmachine_repository_changes';
+type Table = 'blogmachine_sites' | 'blogmachine_posts' | 'blogmachine_publications' | 'blogmachine_repository_changes' | 'blogmachine_repository_sources';
 interface Connection {
   query<T extends Record<string, unknown> = Record<string, unknown>>(text: string, values?: unknown[]): Promise<{ rows: T[]; rowCount: number | null }>;
 }
@@ -37,7 +38,7 @@ export async function createPostgresStore(pool: DatabasePool, seed = true) {
     const result = await pool.query<{ data: T }>(`SELECT data FROM ${table} WHERE id = $1`, [id]);
     return result.rows[0]?.data;
   }
-  async function put(table: 'blogmachine_sites' | 'blogmachine_posts' | 'blogmachine_repository_changes', value: Site | Post | PreparedChange, connection: Connection = pool): Promise<void> {
+  async function put(table: 'blogmachine_sites' | 'blogmachine_posts' | 'blogmachine_repository_changes' | 'blogmachine_repository_sources', value: Site | Post | PreparedChange | RepositorySource, connection: Connection = pool): Promise<void> {
     await connection.query(`INSERT INTO ${table}(id, data) VALUES ($1, $2::jsonb) ON CONFLICT(id) DO UPDATE SET data = EXCLUDED.data`, [value.id, JSON.stringify(value)]);
   }
   async function putPublication(value: Publication, connection: Connection = pool): Promise<void> {
@@ -53,6 +54,7 @@ export async function createPostgresStore(pool: DatabasePool, seed = true) {
       CREATE TABLE IF NOT EXISTS blogmachine_posts (id TEXT PRIMARY KEY, data JSONB NOT NULL, ordinal BIGINT GENERATED ALWAYS AS IDENTITY UNIQUE);
       CREATE TABLE IF NOT EXISTS blogmachine_publications (id TEXT PRIMARY KEY, post_id TEXT NOT NULL, site_id TEXT NOT NULL, data JSONB NOT NULL, ordinal BIGINT GENERATED ALWAYS AS IDENTITY UNIQUE, UNIQUE(post_id, site_id));
       CREATE TABLE IF NOT EXISTS blogmachine_repository_changes (id TEXT PRIMARY KEY, data JSONB NOT NULL, ordinal BIGINT GENERATED ALWAYS AS IDENTITY UNIQUE);
+      CREATE TABLE IF NOT EXISTS blogmachine_repository_sources (id TEXT PRIMARY KEY, data JSONB NOT NULL, ordinal BIGINT GENERATED ALWAYS AS IDENTITY UNIQUE);
       CREATE TABLE IF NOT EXISTS blogmachine_metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL);
     `);
     const seeded = await client.query("SELECT value FROM blogmachine_metadata WHERE key = 'seeded'");
@@ -79,6 +81,8 @@ export async function createPostgresStore(pool: DatabasePool, seed = true) {
     repositoryChanges: () => all<PreparedChange>('blogmachine_repository_changes', pool, true),
     repositoryChange: (id: string) => get<PreparedChange>('blogmachine_repository_changes', id),
     putRepositoryChange: (change: PreparedChange) => put('blogmachine_repository_changes', change),
+    repositorySource: (id: string) => get<RepositorySource>('blogmachine_repository_sources', id),
+    putRepositorySource: (source: RepositorySource) => put('blogmachine_repository_sources', source),
     async deletePost(id: string): Promise<void> {
       await transaction(async client => {
         await client.query('DELETE FROM blogmachine_publications WHERE post_id = $1', [id]);
@@ -131,3 +135,4 @@ export async function createPostgresStore(pool: DatabasePool, seed = true) {
 }
 
 export type PostgresStore = Awaited<ReturnType<typeof createPostgresStore>>;
+

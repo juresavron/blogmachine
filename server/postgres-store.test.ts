@@ -54,6 +54,7 @@ test('SQLite prepared changes persist through the shared store methods and publi
 test('Postgres persists content and prepared changes across store restarts with stable insertion ordering', requiresDatabase, async t => {
   const f = await fixture(t);
   const first = await createPostgresStore(f.pool(), false);
+  await first.putRepositorySource({ id: 'logistiscworld', version: 1, repository: 'juresavron/logistiscworld', head: 'a'.repeat(40), branch: 'main', importedAt: timestamp, files: [], assets: [] });
   await first.putSite(site('first'));
   await first.putSite(site('second'));
   await first.putPost(post('post', ['first']));
@@ -65,6 +66,8 @@ test('Postgres persists content and prepared changes across store restarts with 
   await first.close();
   const restored = await createPostgresStore(f.pool(), false);
   assert.deepEqual((await restored.sites()).map(value => value.id), ['first', 'second']);
+  assert.equal((await restored.repositorySource('logistiscworld'))?.head, 'a'.repeat(40));
+  assert.equal(await restored.repositorySource('missing'), undefined);
   assert.equal((await restored.site('first'))?.name, 'Updated first');
   assert.equal((await restored.post('post'))?.content, 'Content');
   assert.equal((await restored.publication('publication'))?.siteId, 'first');
@@ -185,3 +188,4 @@ test('Netlify initial migration prepares a schema compatible with runtime startu
   await store.putRepositoryChange(prepared('change'));
   assert.equal((await store.repositoryChange('change'))?.artifact, 'A prepared patch\n');
 });
+

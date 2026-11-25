@@ -14,11 +14,21 @@ Inspection of source commit `49a11010688d411d83025badb2a7bae835ca2a0d` found 21 
 
 Local development uses the existing `ocenagor-landing-lovable-13` sibling checkout when present and verifies its origin. An invalid or symlinked checkout is rejected rather than bypassed.
 
-On Netlify, configure **`BLOGMACHINE_GITHUB_TOKEN` in the server/runtime environment**, with a fine-grained GitHub token limited to **Contents: read-only** for `juresavron/ocenagor-landing-lovable-13`. An existing suitable `GITHUB_TOKEN` is also supported. Keep the token out of chat, frontend variables, and source files. Restart/redeploy after changing runtime settings, then refresh the repository connection.
+On Netlify, source access can use a private saved snapshot or a live read-only GitHub connection. A verified local checkout takes priority, followed by a saved snapshot. GitHub is used when neither is available.
 
-The website repository is private. The GitHub connection used to deploy Blog Machine does not automatically give the running API access to that repository. The hosted reader uses only GitHub GET requests for this fixed repository and its `main` branch. It verifies Git blob hashes and downloads a bounded subset of blog data, tenant metadata, and referenced covers to temporary server storage. It does not execute downloaded source or require a Git executable. Private website source and credentials are not committed into the public Blog Machine repository or included in its deployment bundle.
+For a saved snapshot, export the current committed source from a trusted workspace and import the JSON in **Repository connections → OcenaGor → Source snapshot**:
 
-A fresh remote HEAD check protects article reads and preparation. If the source changes, reload the connection before preparing again. Warm caches are verified and bounded; a server restart can fetch the source again using the configured token. Authentication failures, temporary limits, and missing configuration remain distinct from a ready connection.
+```sh
+node --import tsx scripts/export-source.ts --id ocenagor --workspace /workspace
+```
+
+Snapshots stay at their displayed commit until updated and survive app deployments. After upgrading from the Slovenian-only adapter, export a fresh snapshot containing the Croatian, Italian, and shared localization modules. Cover assets are represented by verified Git path/hash/size metadata. Keep the JSON private and out of this public repository.
+
+For the GitHub connection, configure **`BLOGMACHINE_GITHUB_TOKEN` in the server/runtime environment**, with a fine-grained GitHub token limited to **Contents: read-only** for `juresavron/ocenagor-landing-lovable-13`. An existing suitable `GITHUB_TOKEN` is also supported. Keep the token out of chat, frontend variables, and source files. Restart/redeploy after changing runtime settings, then refresh the repository connection.
+
+The website repository is private. The GitHub connection used to deploy Blog Machine does not automatically give the running API access to that repository. The optional hosted GitHub reader uses only GitHub GET requests for this fixed repository and its `main` branch. It verifies Git blob hashes and downloads a bounded subset of blog data, tenant metadata, and referenced covers to temporary server storage. It does not execute downloaded source or require a Git executable. Private website source and credentials are not committed into the public Blog Machine repository or included in its deployment bundle.
+
+In GitHub mode, a fresh remote HEAD check protects article reads and preparation. If the source changes, reload the connection before preparing again. Warm caches are verified and bounded; a server restart can fetch the source again using the configured token. Authentication failures, temporary limits, and missing configuration remain distinct from a ready GitHub connection. A selected saved snapshot is identified separately and is never presented as a fresh remote revision.
 
 ## Write a language version
 

@@ -1,5 +1,6 @@
+import { importedIdentity } from './snapshot-identity.js';
 import { resolve } from 'node:path';
-import { realpath } from 'node:fs/promises';
+import { lstat, realpath } from 'node:fs/promises';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { logistiscworldAdapter } from './logistiscworld.js';
@@ -38,26 +39,51 @@ export function definition(id: string) {
   if (!found) throw new Error('Unknown repository connection.');
   return found;
 }
-export async function checkedRepositoryRoot(workspace: string, id: string, options: GitHubSourceOptions = {}) {
+/** Only a genuinely absent checkout permits another source provider. */
+export class RepositoryCheckoutUnavailableError extends Error {
+  constructor() { super('Repository checkout is unavailable. Restore it before preparing content.'); this.name = 'RepositoryCheckoutUnavailableError'; }
+}
+export async function localRepositoryRoot(workspace: string, id: string): Promise<string> {
   const item = definition(id);
-  const fallback = () => {
-    if (id !== 'ocenagor') throw new Error('Repository checkout is unavailable. Restore it before preparing content.');
-    return ensureGitHubSource(id, options);
-  };
   let base: string;
   try { base = await realpath(workspace); }
-  catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return fallback(); throw error; }
+  catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+    // A dangling workspace link is an invalid configured path, not an absent checkout.
+    try {
+      if ((await lstat(workspace)).isSymbolicLink()) throw new Error('Repository symlinks are not supported for content preparation.');
+    } catch (inspectionError) {
+      if ((inspectionError as NodeJS.ErrnoException).code !== 'ENOENT') throw inspectionError;
+    }
+    throw new RepositoryCheckoutUnavailableError();
+  }
   const directory = item.checkoutDirectory ?? id;
-  let root: string;
-  try { root = await realpath(resolve(base, directory)); }
-  catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return fallback(); throw error; }
-  if (root !== resolve(base, directory)) throw new Error('Repository symlinks are not supported for content preparation.');
+  const expectedRoot = resolve(base, directory);
+  let info;
+  try { info = await lstat(expectedRoot); }
+  catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') throw new RepositoryCheckoutUnavailableError();
+    throw error;
+  }
+  if (info.isSymbolicLink()) throw new Error('Repository symlinks are not supported for content preparation.');
+  if (!info.isDirectory()) throw new Error('The repository checkout must be a directory.');
+  const root = await realpath(expectedRoot);
+  if (root !== expectedRoot) throw new Error('Repository symlinks are not supported for content preparation.');
   const remote = (await execute('git', ['-C', root, 'config', '--get', 'remote.origin.url'])).stdout.trim();
   const expected = `https://github.com/${item.repository}`;
   if (remote.replace(/\.git$/, '') !== expected) throw new Error('The checkout remote does not match this repository connection.');
   return root;
 }
+export async function checkedRepositoryRoot(workspace: string, id: string, options: GitHubSourceOptions = {}): Promise<string> {
+  try { return await localRepositoryRoot(workspace, id); }
+  catch (error) {
+    if (!(error instanceof RepositoryCheckoutUnavailableError) || id !== 'ocenagor') throw error;
+    return ensureGitHubSource(id, options);
+  }
+}
 export async function gitIdentity(root: string) {
+  const imported = importedIdentity(root);
+  if (imported) return { head: imported.head, branch: imported.branch, sourceMode: 'snapshot' as const };
   const hosted = await githubSourceIdentity(root);
   if (hosted) return hosted;
   const [head, branch] = await Promise.all([

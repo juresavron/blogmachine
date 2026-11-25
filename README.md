@@ -40,7 +40,7 @@ For hosted production, see [Netlify deployment](docs/netlify-deployment.md). It 
 
 ## Connect your websites
 
-Use **Repository connections** for the inspected Mediašped, OcenaGor.si, LogisticsWorld, Onlyworld, Lumina, and Trgovina content workflows. Mediašped uses Supabase; the OcenaGor family uses linked static source files for `ocenagor.si`, `ocjenagor.hr`, and `valutosu.it`. Their adapters are implemented, while live database access and production deployments are separate prerequisites. Pultaro, Agencija delavci, and Klicni center remain empty placeholders. No per-site MCP server is required.
+Use **Repository connections** for the inspected Mediašped, OcenaGor.si, LogisticsWorld, Onlyworld, Lumina, and Trgovina content workflows. Mediašped uses Supabase; the OcenaGor family uses linked static source files for `ocenagor.si`, `ocjenagor.hr`, and `valutosu.it`. Hosted connections accept source snapshots stored privately in Postgres. OcenaGor also supports a scoped read-only GitHub connection. Live database access and production publication are separate prerequisites. Pultaro, Agencija delavci, and Klicni center remain empty placeholders. No per-site MCP server is required.
 
 Save a post with a title, lowercase hyphenated slug, short description, and body before preparing it. The description is optional in the general post editor but required by the repository hub. Use `## Section heading` lines to separate body sections. The hub checks the checkout HEAD and, for Git content, the loaded source hash before preparing a change. Generated source is checked for syntax and schema compatibility; this is not a full build of the destination website.
 

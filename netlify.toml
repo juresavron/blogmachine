@@ -1,5 +1,5 @@
 [build]
-  command = "npm run build"
+  command = "npm test && npm run build"
   publish = "dist"
 
 [build.environment]
@@ -14,3 +14,4 @@
 
 # The frontend uses hash navigation. Do not add a /* -> /index.html rewrite:
 # rewrite rules run before Netlify Server and would swallow the /api routes.
+

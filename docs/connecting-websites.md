@@ -20,12 +20,26 @@ The hub contains nine entries. Repository identities below are under `juresavron
 
 There are four Git adapters and two database profiles. An available checkout establishes source access, not database administrator access, a live website connection, or a successful production deployment. Trgovina's `vrecke` tenant is marked pre-launch; production custom-domain routing is unverified.
 
+## Hosted source connections
+
+The hosted app does not have sibling repository checkouts. Import a source snapshot using **Repository connections → select website → Source snapshot (JSON)**. Blog Machine accepts only the fixed adapter files, checks their Git blob hashes, and parses static content without executing website code. Ocenagor image files are represented by original Git path/hash/size metadata; their binary data is not copied.
+
+Snapshots are stored in the private workspace database, separate from this public GitHub repository and frontend assets. They survive deployments and server restarts. The displayed branch and commit describe the imported revision, not a live GitHub sync. Export and import a fresh snapshot after website changes. Applying any prepared patch still requires checking the current destination source and running its build gates.
+
+From a trusted workspace with the website checkout, export a snapshot with:
+
+```sh
+node --import tsx scripts/export-source.ts --id mediasped --workspace /workspace
+```
+
+Use IDs `mediasped`, `ocenagor`, `logistiscworld`, `onlyworld`, `lumina`, or `trgovina`. The exporter reads committed content from the verified repository origin. Its default `source-snapshots/` output is ignored by Git. Keep these files private. Administrator sessions and credentials are not included, and importing source never publishes an article or creates a website draft.
+
 ## Prepare and review a change
 
 1. Save a Blog Machine post with a title, slug, short description, and body. Although the general editor allows an empty short description, repository preparation requires one. Use lowercase words separated by hyphens for the slug and plain text without literal `<` characters. Body lines beginning with `## ` become section headings.
 2. Open **Repository connections**, select the repository and its destination, and load its existing articles. Write in the chosen destination's language; the hub does not translate text.
 3. Fill in the destination's required metadata, then choose **Prepare change**. Git preparation requires the current checkout HEAD and the source hash returned by the article list. Changes to either require reloading before preparing again.
-4. Review the generated patch or JSON and download it. The artifact and its preparation record are stored in Blog Machine's local SQLite database. An expected article URL is a proposed destination, not evidence of a published page.
+4. Review the generated patch or JSON and download it. The artifact and its preparation record are stored in the workspace database (Postgres on Netlify, SQLite locally). An expected article URL is a proposed destination, not evidence of a published page.
 5. Complete the destination's separate draft or deployment workflow. Preparing an artifact makes no website source edits, commits, pushes, deployments, or remote database writes.
 
 Generated Git content is parsed and validated against its adapter's schema. A downloadable patch does not establish that the complete website builds or that its production routes work. Before applying a patch, recheck the destination checkout and run that site's documented build and tests. Static sites include content at build time; keep unapproved drafts in Blog Machine.
@@ -71,7 +85,7 @@ Preparation exports JSON with a stable UUID, `status: "draft"`, and `published_a
 
 Repository connections read sibling checkouts under `/workspace` by default. `BLOGMACHINE_REPOSITORIES_ROOT` can select another parent directory. Keep the catalog's repository identities and directory names intact; the server checks each checkout's origin. Use the existing checkouts: each cloud task is already isolated, so no extra Git worktree is needed.
 
-Check the actual checkout availability rather than assuming every website repository is installed. The hosted OcenaGor family reader can use a scoped read-only GitHub token when its checkout is absent; the other source adapters still require their supported local checkouts or separate connection configuration. Parsing source does not install or build every destination website. See [Netlify deployment](netlify-deployment.md) for the app's hosted runtime and storage.
+Check the actual checkout availability rather than assuming every website repository is installed. All supported adapters can use private imported snapshots when local checkouts are absent. The hosted OcenaGor family reader can also use a scoped read-only GitHub token when neither a checkout nor a saved snapshot is available. Parsing source does not install or build every destination website. See [Netlify deployment](netlify-deployment.md) for the app's hosted runtime and storage.
 
 Inspect the current network policy before using live integrations. Google needs `searchconsole.googleapis.com` and `www.googleapis.com`; database profiles need their configured Supabase hosts; the hosted OcenaGor source reader needs `api.github.com`. Repository read access does not supply website administrator access or publishing permission.
 
@@ -86,3 +100,4 @@ Create an application password for an account permitted to publish, restart the 
 Publishing access is separate from Google access. Save the exact verified Search Console property for the destination and configure `GOOGLE_ACCESS_TOKEN` securely with the `https://www.googleapis.com/auth/webmasters` scope and property access. Google API access requires `searchconsole.googleapis.com` and `www.googleapis.com`. Refresh the short-lived token externally.
 
 Blog Machine can inspect actual published URLs and submit a sitemap the website already serves. It does not generate a sitemap or force indexing. Demo publications cannot be inspected or submitted. LogisticsWorld's existing global `noindex, nofollow` must be addressed through a reviewed site launch change before indexing can work.
+

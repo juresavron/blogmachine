@@ -66,6 +66,7 @@ export function createApplication<T extends ContentStore>(options: ApplicationOp
   const activePublishes = new Set<string>();
   const app = express();
   app.disable('x-powered-by');
+  app.use('/api/repositories/:id/source', express.json({ limit: '4mb' }));
   app.use(express.json({ limit: '1mb' }));
   app.use('/api', (req, res, next) => {
     res.set('Cache-Control', 'no-store');
@@ -357,3 +358,4 @@ export function createApplication<T extends ContentStore>(options: ApplicationOp
 
   return { app, store };
 }
+
