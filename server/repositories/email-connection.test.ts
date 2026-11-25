@@ -29,14 +29,14 @@ function fixture() {
     return new Promise<{ status: number; data: Record<string, unknown>; cookie: string }>((resolve, reject) => {
       const jar = new Map(cookie.split('; ').filter(Boolean).map(value => value.split('=')) as [string, string][]);
       const req = { method, url: path, body, headers: { cookie, host: 'workspace.example', origin: 'https://workspace.example' }, ip: 'fixture-browser', secure: true, aborted: false,
-        get(name: string) { return this.headers[name.toLowerCase() as keyof typeof this.headers]; },
+        get(this: { headers: Record<string, string> }, name: string) { return this.headers[name.toLowerCase()]; },
       } as unknown as Request;
       let status = 200;
       const res = { destroyed: false, writableEnded: false,
         status(value: number) { status = value; return this; },
         set() { return this; },
         cookie(name: string, value: string, options: Record<string, unknown>) { assert.equal(options.httpOnly, true); assert.equal(options.sameSite, 'strict'); jar.set(name, value); return this; },
-        json(data: Record<string, unknown>) { this.writableEnded = true; resolve({ status, data, cookie: [...jar].map(([key, value]) => `${key}=${value}`).join('; ') }); return this; },
+        json(this: { writableEnded: boolean }, data: Record<string, unknown>) { this.writableEnded = true; resolve({ status, data, cookie: [...jar].map(([key, value]) => `${key}=${value}`).join('; ') }); return this; },
       } as unknown as Response;
       connection.router(req, res, error => error ? reject(error) : reject(new Error('Route did not respond')));
     });
