@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test, type TestContext } from 'node:test';
 import type { Server } from 'node:http';
-import { createApp, type AppOptions } from './app.js';
+import { createApplication, type ApplicationOptions } from './application.js';
 import { createStore } from './store.js';
 import type { ContentStore } from './storage.js';
 import type { PreparedChange } from './repositories/routes.js';
@@ -10,7 +10,7 @@ import { UnsentRequestError, type OutboundRequest } from './network.js';
 
 // Delay both reads and writes so an omitted await cannot pass by completing in
 // the same microtask turn as the HTTP response.
-async function fixture(t: TestContext, options: Omit<AppOptions, 'store'> = {}, overrides: Partial<ContentStore> = {}) {
+async function fixture(t: TestContext, options: Omit<ApplicationOptions, 'store'> = {}, overrides: Partial<ContentStore> = {}) {
   const backing = createStore(':memory:', false);
   const source: ContentStore = { ...backing, ...overrides };
   const store = new Proxy(source, {
@@ -23,7 +23,7 @@ async function fixture(t: TestContext, options: Omit<AppOptions, 'store'> = {}, 
       };
     },
   });
-  const { app } = createApp({ env: {}, ...options, store });
+  const { app } = createApplication({ env: {}, ...options, store });
   const server: Server = await new Promise(resolve => {
     const listening = app.listen(0, '127.0.0.1', () => resolve(listening));
   });
@@ -203,7 +203,7 @@ test('successful create followed by failed result storage retains a durable dupl
   assert.equal(visible.remoteId, undefined);
 
   // A fresh application has no in-memory active-publication guard to rely on.
-  const { app } = createApp({ store: f.store, env: wordpressEnv, wordpressRequest: request });
+  const { app } = createApplication({ store: f.store, env: wordpressEnv, wordpressRequest: request });
   const server: Server = await new Promise(resolve => {
     const listening = app.listen(0, '127.0.0.1', () => resolve(listening));
   });

@@ -1,6 +1,6 @@
 import express from 'express';
 import type { ContentStore } from './storage.js';
-import { createApp } from './app.js';
+import { createApplication } from './application.js';
 
 export interface NetlifyStorage extends ContentStore {
   acquireWriteLock(): Promise<null | (() => Promise<void>)>;
@@ -63,7 +63,7 @@ export function createNetlifyApp(store: NetlifyStorage, isAuthenticated: () => b
       res.status(503).json({ error: 'Workspace storage is temporarily unavailable. Please try again.' });
     }
   });
-  app.use(createApp({ store }).app);
+  app.use(createApplication({ store }).app);
 
   let closing: Promise<void> | undefined;
   return {
