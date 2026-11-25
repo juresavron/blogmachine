@@ -38,6 +38,8 @@ async function fixture(t: TestContext, ambient = true) {
       if (!controls.refreshAccepted) return json({ error: nextRefresh }, 401);
       return json({ access_token: rotatedAccess, refresh_token: nextRefresh, expires_in: 3600 });
     }
+    if (url.pathname === '/auth/v1/otp') return controls.loginAccepted ? json({}) : json({ error: password }, 400);
+    if (url.pathname === '/auth/v1/verify') return controls.loginAccepted ? json({ access_token: accessToken, refresh_token: refreshToken, expires_in: controls.expiresIn, user: { email: 'admin@example.invalid' } }) : json({ error: password }, 400);
     if (url.pathname === '/auth/v1/user') return controls.identityAccepted ? json({ id: userId, email: 'private@example.invalid' }) : json({ error: accessToken }, 401);
     if (url.pathname === '/rest/v1/rpc/is_admin') { assert.deepEqual(JSON.parse(String(init.body)), { _user_id: userId }); return json(controls.admin); }
     if (url.pathname === '/auth/v1/logout') {
@@ -269,4 +271,58 @@ test('login attempts are bounded and upstream logout failure still disconnects l
   assert.equal(limited.status, 429);
   assert.equal(limited.response.headers.get('Retry-After'), '900');
   f.noSecrets(limited.data);
+});
+
+
+test('email sign-in uses existing accounts only and connects a verified administrator without exposing tokens', async t => {
+  const f = await fixture(t, false);
+  const status = await f.api('/connections/mediasped/session');
+  let cookie = f.mergeCookies('', status.cookies);
+  const start = await f.api('/connections/mediasped/email/start', 'POST', { email: 'admin@example.invalid' }, cookie);
+  assert.equal(start.status, 200); assert.equal(start.data.sent, true); f.noSecrets(start.data);
+  const otpCall = f.calls.find(call => call.url.pathname === '/auth/v1/otp')!;
+  assert.deepEqual(JSON.parse(String(otpCall.init.body)), { email: 'admin@example.invalid', create_user: false });
+  const proof = `${project}/auth/v1/verify?token=${'a'.repeat(64)}&type=magiclink&redirect_to=https%3A%2F%2Fmediasped.com`;
+  const connected = await f.api('/connections/mediasped/email/verify', 'POST', { proof }, cookie);
+  assert.equal(connected.status, 200); assert.equal(connected.data.admin, true); f.noSecrets(connected.data); f.noSecrets(connected.cookies);
+  const verifyCall = f.calls.find(call => call.url.pathname === '/auth/v1/verify')!;
+  assert.deepEqual(JSON.parse(String(verifyCall.init.body)), { token_hash: 'a'.repeat(64), type: 'email' });
+  cookie = f.mergeCookies(cookie, connected.cookies);
+  assert.equal((await f.api('/connections/mediasped/session', 'GET', undefined, cookie)).data.authenticated, true);
+  assert.equal(f.calls.some(call => call.url.pathname === '/rest/v1/blog_posts'), false);
+});
+
+test('email challenges are browser-bound, expire, and are canceled by logout', async t => {
+  const f = await fixture(t, false);
+  const status = await f.api('/connections/mediasped/session');
+  const cookie = f.mergeCookies('', status.cookies);
+  await f.api('/connections/mediasped/email/start', 'POST', { email: 'admin@example.invalid' }, cookie);
+  assert.equal((await f.api('/connections/mediasped/email/verify', 'POST', { proof: '123456' })).status, 401);
+  f.advance(10 * 60 * 1000 + 1);
+  assert.equal((await f.api('/connections/mediasped/email/verify', 'POST', { proof: '123456' }, cookie)).status, 401);
+  await f.api('/connections/mediasped/email/start', 'POST', { email: 'admin@example.invalid' }, cookie);
+  await f.api('/connections/mediasped/logout', 'POST', {}, cookie);
+  assert.equal((await f.api('/connections/mediasped/email/verify', 'POST', { proof: '123456' }, cookie)).status, 401);
+  assert.equal(f.calls.some(call => call.url.pathname === '/auth/v1/verify'), false);
+});
+
+test('email verification still requires the existing administrator role', async t => {
+  const f = await fixture(t, false); f.controls.admin = false;
+  const status = await f.api('/connections/mediasped/session');
+  const cookie = f.mergeCookies('', status.cookies);
+  await f.api('/connections/mediasped/email/start', 'POST', { email: 'admin@example.invalid' }, cookie);
+  const result = await f.api('/connections/mediasped/email/verify', 'POST', { proof: '123456' }, cookie);
+  assert.equal(result.status, 401); assert.equal(result.data.authenticated, false); f.noSecrets(result.data);
+  assert.ok(f.calls.some(call => call.url.pathname === '/auth/v1/logout'));
+});
+
+test('email verification refuses unrelated and credential-bearing provider links before sending them', async () => {
+  const { mediaspedEmailProof } = await import('./mediasped-sessions.js');
+  assert.deepEqual(mediaspedEmailProof('123456', 'admin@example.invalid'), { email: 'admin@example.invalid', token: '123456', type: 'email' });
+  for (const proof of [
+    `https://evil.example/auth/v1/verify?token=${'a'.repeat(64)}&type=magiclink`,
+    `https://user:password@ytmowbzkpofeeocgevyr.supabase.co/auth/v1/verify?token=${'a'.repeat(64)}&type=magiclink`,
+    `${project}/auth/v1/verify?token=${'a'.repeat(64)}&type=recovery`,
+    `${project}/auth/v1/verify?token=short&type=magiclink`,
+  ]) assert.throws(() => mediaspedEmailProof(proof, 'admin@example.invalid'));
 });

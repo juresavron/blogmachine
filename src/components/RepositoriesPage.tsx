@@ -25,7 +25,7 @@ interface ArticleState { key: string; loading: boolean; articles: Article[]; sou
 interface ConnectionResult { message: string; readable?: boolean; head?: string; branch?: string; configured?: boolean; authenticated?: boolean; admin?: boolean; }
 interface MediaSession { authenticated: boolean; admin: boolean; source: 'browser' | 'environment' | 'none'; expiresAt?: string; message: string; }
 class MediaAccountError extends Error { constructor(public status: number, message: string) { super(message); } }
-async function mediaAccountRequest(action: 'session' | 'login' | 'logout', body?: { email: string; password: string }, signal?: AbortSignal): Promise<MediaSession> {
+async function mediaAccountRequest(action: 'session' | 'login' | 'logout' | 'email/verify', body?: { email?: string; password?: string; proof?: string }, signal?: AbortSignal): Promise<MediaSession> {
   const failure = action === 'login' ? 'Could not connect your account. Check your email and password and try again.' : action === 'logout' ? 'Could not disconnect your account. Try again.' : 'Could not check your account connection. Try again or reconnect.';
   let response: Response;
   try {
@@ -83,10 +83,12 @@ export function RepositoriesPage({ posts, onNotify }: Props) {
   const [mediaSession, setMediaSession] = useState<MediaSession | null>(null);
   const [mediaStatusLoading, setMediaStatusLoading] = useState(false);
   const [mediaStatusRetry, setMediaStatusRetry] = useState(0);
-  const [mediaAuthAction, setMediaAuthAction] = useState<'login' | 'logout' | null>(null);
+  const [mediaAuthAction, setMediaAuthAction] = useState<'login' | 'logout' | 'email' | 'verify' | null>(null);
   const [mediaAuthError, setMediaAuthError] = useState('');
   const [mediaEmail, setMediaEmail] = useState('');
   const [mediaPassword, setMediaPassword] = useState('');
+  const [mediaEmailChallenge, setMediaEmailChallenge] = useState(false);
+  const [mediaEmailProof, setMediaEmailProof] = useState('');
   const [importing, setImporting] = useState(false);
   const [importError, setImportError] = useState('');
   const busy = preparing || savingDraft || mediaAuthAction !== null || importing;
@@ -227,6 +229,29 @@ export function RepositoriesPage({ posts, onNotify }: Props) {
       if (mounted.current && request === mediaRequest.current) { setMediaPassword(''); setMediaAuthAction(null); }
     }
   }
+  async function startMediaEmail() {
+    if (busy || selected?.id !== 'mediasped') return;
+    setMediaAuthAction('email'); setMediaAuthError(''); setMediaEmailProof('');
+    try {
+      const response = await api<{ sent: boolean }>('/connections/mediasped/email/start', { method: 'POST', body: JSON.stringify({ email: mediaEmail.trim() }) });
+      if (!response.sent) throw new Error('Could not request email sign-in.');
+      if (mounted.current) { setMediaEmailChallenge(true); onNotify('Check your email for the sign-in link or code.'); }
+    } catch (error) { if (mounted.current) setMediaAuthError(error instanceof Error ? error.message : 'Could not request email sign-in.'); }
+    finally { if (mounted.current) setMediaAuthAction(null); }
+  }
+  async function verifyMediaEmail(event: FormEvent) {
+    event.preventDefault();
+    if (busy || selected?.id !== 'mediasped') return;
+    const proof = mediaEmailProof;
+    setMediaAuthAction('verify'); setMediaAuthError(''); setMediaEmailProof('');
+    try {
+      const session = await mediaAccountRequest('email/verify', { proof });
+      if (!mounted.current) return;
+      setMediaSession(session); setMediaEmailChallenge(false); setMediaStatusLoading(false);
+      onNotify('Mediašped account connected. Administrator access verified.');
+    } catch { if (mounted.current) setMediaAuthError('Could not verify this email sign-in. Request a new link or code and try again.'); }
+    finally { if (mounted.current) setMediaAuthAction(null); }
+  }
   async function disconnectMediaAccount() {
     if (busy || selected?.id !== 'mediasped') return;
     const request = ++mediaRequest.current, key = selectionKey;
@@ -249,7 +274,7 @@ export function RepositoriesPage({ posts, onNotify }: Props) {
 
   function selectRepository(repository: Repository) {
     if (busy) return;
-    setMediaPassword('');
+    setMediaPassword(''); setMediaEmailProof(''); setMediaEmailChallenge(false);
     setImportError(''); setRepositoryId(repository.id); setTargetKey(repository.targets[0]?.key || '');
     setArticles(emptyArticles); setArticleQuery(''); setPrepareError(''); setPreview(null); setPreviewLoading(''); setTest(null); setSaveDraftError('');
     setCategory(''); setArtwork(''); setTakeaway(''); setDirectoryLink(''); setPrimaryKeyword(''); setSeoTitle(''); setImageAlt(''); setSourceSlug(''); setCtaTemplateSlug(''); setImageSourceSlug('google-ocene-vodic-za-podjetja');
@@ -431,6 +456,7 @@ export function RepositoriesPage({ posts, onNotify }: Props) {
               {mediaStatusLoading ? <div className="repo-account-loading" role="status"><Loader2 size={17} className="repo-spin" />Checking your account connection…</div> : <>
                 {mediaSession && mediaSession.source !== 'none' && <div className={`repo-account-status ${mediaSession.authenticated && mediaSession.admin && !mediaSessionExpired ? 'repo-account-verified' : ''}`} role="status"><UserRound size={19} /><div><strong>{mediaSession.source === 'environment' ? mediaSession.authenticated ? 'Server connection available' : 'Server connection needs attention' : mediaSession.authenticated && !mediaSessionExpired ? mediaSession.admin ? 'Account connected · administrator verified' : 'Account connected · administrator access needed' : 'Reconnect your account'}</strong><p>{mediaSession.message}</p>{mediaSession.expiresAt && Number.isFinite(Date.parse(mediaSession.expiresAt)) && <small>{mediaSessionExpired ? 'Session expired' : `Session expires ${formatDate(mediaSession.expiresAt)}`}</small>}{mediaSession.source === 'environment' && <small>The server connection is separate from your personal account. You can sign in with your own account below.</small>}</div>{mediaSession.source === 'browser' && <button type="button" className="repo-button repo-small-button" disabled={busy} onClick={() => void disconnectMediaAccount()}>{mediaAuthAction === 'logout' ? <Loader2 size={13} className="repo-spin" /> : <LogOut size={13} />}{mediaAuthAction === 'logout' ? 'Disconnecting…' : 'Disconnect account'}</button>}</div>}
                 {!(mediaSession?.source === 'browser' && mediaSession.authenticated && !mediaSessionExpired) && <form className="repo-account-form" onSubmit={event => void connectMediaAccount(event)}><div className="repo-form-grid"><label className="repo-field" htmlFor="media-account-email">Email<input id="media-account-email" type="email" name="username" autoComplete="username" required value={mediaEmail} disabled={busy} onChange={event => setMediaEmail(event.target.value)} placeholder="Your Mediašped account email" /></label><label className="repo-field" htmlFor="media-account-password">Password<input id="media-account-password" type="password" name="password" autoComplete="current-password" required value={mediaPassword} disabled={busy} onChange={event => setMediaPassword(event.target.value)} placeholder="Your account password" /></label></div><div className="repo-account-form-actions"><button className="repo-button repo-primary" disabled={busy || mediaStatusLoading || !mediaEmail.trim() || !mediaPassword}>{mediaAuthAction === 'login' ? <Loader2 size={15} className="repo-spin" /> : <LockKeyhole size={15} />}{mediaAuthAction === 'login' ? 'Connecting account…' : 'Connect account'}</button><p>Your password is used for this sign-in request. It is not saved in browser storage.</p></div></form>}
+                {!(mediaSession?.source === 'browser' && mediaSession.authenticated && !mediaSessionExpired) && <div className="repo-account-email"><button type="button" className="repo-button" disabled={busy || mediaStatusLoading || !mediaEmail.trim()} onClick={() => void startMediaEmail()}>{mediaAuthAction === 'email' ? 'Sending sign-in email…' : 'Email me a sign-in link'}</button><p>Uses your existing account. Your password stays unchanged.</p>{mediaEmailChallenge && <form onSubmit={event => void verifyMediaEmail(event)}><label className="repo-field" htmlFor="media-email-proof">Email sign-in code or link<input id="media-email-proof" type="password" autoComplete="one-time-code" value={mediaEmailProof} onChange={event => setMediaEmailProof(event.target.value)} disabled={busy} required placeholder="Paste the code or original sign-in link" /></label><button className="repo-button repo-primary" disabled={busy || !mediaEmailProof.trim()}>{mediaAuthAction === 'verify' ? 'Verifying…' : 'Verify email and connect'}</button></form>}</div>}
                 {mediaSession?.source === 'browser' && mediaSession.authenticated && !mediaSession.admin && <p className="repo-form-note">This account needs administrator access to save website drafts. Disconnect it to sign in with another account.</p>}
               </>}
               {mediaSession?.source === 'none' && !mediaStatusLoading && <p className="repo-account-prompt" role="status">{mediaSession.message}</p>}

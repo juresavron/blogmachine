@@ -53,6 +53,8 @@ export function prepareTrgovinaDraft(draft: ContentDraft, targetKey: string, id:
   };
 }
 
+export class TrgovinaReadError extends Error {}
+
 type TrgovinaEnv = Record<string, string | undefined>;
 export type TrgovinaRequest = (url: string, init: RequestInit) => Promise<Response>;
 export interface TrgovinaConnection {
@@ -132,10 +134,11 @@ export async function listTrgovinaArticles(targetKey: string, env: TrgovinaEnv, 
   let response: Response;
   try { response = await request(`${config.origin}/rest/v1/posts?${query.toString()}`, requestOptions(headers)); }
   catch { throw new Error('Could not read Trgovina articles. Check Supabase configuration and network access.'); }
-  if (!response.ok) throw new Error('Supabase did not permit reading published Trgovina articles. Check project configuration and permissions.');
+  if (!response.ok) throw new TrgovinaReadError(`Trgovina database returned HTTP ${response.status}. Check the project key and published-article permissions.`);
   let rows: { slug: string; title: string; excerpt: string }[];
   try {
     rows = z.array(z.object({ slug: z.string().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/).max(200), title: z.string(), excerpt: z.string() })).parse(await response.json());
   } catch { throw new Error('Supabase returned an unrecognized article list.'); }
   return rows.map(row => ({ slug: row.slug, title: row.title, description: row.excerpt, url: `${target.url}${target.contentPath}/${row.slug}` }));
 }
+

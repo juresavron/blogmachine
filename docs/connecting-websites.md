@@ -59,6 +59,9 @@ The server normally reads the public Supabase URL and publishable key from `src/
 
 ### Connect your account
 
+The connection form also supports email verification for existing accounts. Enter the account email and choose **Email me a sign-in link**; paste the original Supabase link or code into the verification field. Blog Machine requests `create_user: false`, binds the challenge to this browser for ten minutes, and checks the existing administrator role before connecting. This does not create users, reset passwords, publish content, or change the website's authentication configuration. Session and refresh-token handling is the same as password sign-in.
+
+
 Open **Repository connections → Mediašped → Connect account** and sign in with the email and password for an existing Mediašped administrator account. Blog Machine authenticates against the verified Supabase project and checks the existing `is_admin` RPC. An ordinary signed-in account without administrator access cannot save website drafts. There is no signup flow, and service-role credentials are unsupported.
 
 Passwords are used for sign-in and are not retained. Access and refresh tokens stay in server memory; they are never returned to the browser or written to SQLite, files, or browser storage. The browser receives an opaque session cookie with HttpOnly, SameSite=Strict, and Path=/api. This connection authenticates Mediašped actions; it does not add general authentication to the single-user Blog Machine application.
