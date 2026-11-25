@@ -10,9 +10,11 @@ import { definitions, definition, gitAdapters, gitIdentity } from './catalog.js'
 import { assertMediaspedSourceSlugAvailable } from './media-source.js';
 import { databaseEnvironment } from './environment.js';
 import { listMediaspedArticles, prepareMediaspedDraft, createMediaspedDraft } from './mediasped.js';
-import { listTrgovinaArticles, prepareTrgovinaDraft, testTrgovinaConnection, TrgovinaReadError } from './trgovina.js';
+import { listTrgovinaArticles, prepareTrgovinaDraft, createTrgovinaDraft, TrgovinaReadError } from './trgovina.js';
 import type { Awaitable, ContentStore } from '../storage.js';
 import { createMediaspedSessions, mediaspedSessionError } from './mediasped-sessions.js';
+import { listVenueArticles, prepareVenueDraft } from './ocenagor-venues.js';
+import { createTrgovinaSessions } from './trgovina-sessions.js';
 import { GitHubSourceError } from './github-source.js';
 
 const hash = (text: string) => createHash('sha256').update(text).digest('hex');
@@ -36,7 +38,8 @@ export function repositoryRoutes(store: ContentStore, options: { workspace: stri
   const sources = createRepositorySources(store, options.workspace, options);
   const rootFor = (id: string) => sources.root(id);
   const mediaspedSessions = createMediaspedSessions({ ...options, repositoryRoot: rootFor });
-  router.use(mediaspedSessions.router);
+  const trgovinaSessions = createTrgovinaSessions({ ...options, repositoryRoot: rootFor });
+  router.use(mediaspedSessions.router, trgovinaSessions.router);
   async function source(root: string, relativePath: string) {
     const path = await realpath(resolve(root, relativePath));
     if (path !== resolve(root, relativePath)) throw new RepositoryError(409, 'The content file is a symlink. Review it before preparing changes.');
@@ -46,8 +49,10 @@ export function repositoryRoutes(store: ContentStore, options: { workspace: stri
     const files = await Promise.all([target.contentPath, ...(target.additionalPaths ?? [])].map(async path => ({ path, text: await source(root, path) })));
     return { files, hash: files.length === 1 ? hash(files[0].text) : hash(JSON.stringify(files)) };
   }
+  const venueHead = createHash('sha1').update(JSON.stringify(definition('ocenagor-venues').targets)).digest('hex');
   router.get('/repositories', async (_req, res) => {
     const repositories = await Promise.all(definitions().map(async item => {
+      if (item.id === 'ocenagor-venues') return { ...item, available: true, source: 'api', branch: null, head: venueHead, message: 'Connected to the existing public customer blog API. Article reads are live; editor access and publication are separate.' };
       if (item.kind === 'empty') return { ...item, available: false, branch: null, head: null, message: 'Empty repository; no content adapter.' };
       try { const root = await rootFor(item.id); const identity = await gitIdentity(root); const imported = importedIdentity(root); return { ...item, ...identity, available: true, source: imported ? 'snapshot' : identity.sourceMode === 'github' ? 'github' : 'checkout', importedAt: imported?.importedAt, message: imported ? 'Saved source snapshot. Refresh it after website source changes; live publication and administrator access are separate.' : item.kind === 'database' ? 'Schema inspected; database access is separate.' : identity.sourceMode === 'github' ? 'Read-only source from GitHub. Live deployment is not verified.' : 'Local source is available. Live deployment is not verified.' }; }
       catch (error) { return { ...item, available: false, branch: null, head: null, ...(error instanceof GitHubSourceError ? { sourceMode: 'github', sourceRequiresToken: error.code === 'token_missing' } : {}), message: error instanceof GitHubSourceError ? error.message : 'Website source is unavailable. Import a fresh source snapshot or restore its verified checkout.' }; }
@@ -55,6 +60,7 @@ export function repositoryRoutes(store: ContentStore, options: { workspace: stri
     res.json({ repositories, changes: (await stored(() => store.repositoryChanges())).map(publicChange) });
   });
   router.post('/repositories/:id/source', async (req, res) => {
+    if (req.params.id === 'ocenagor-venues') throw new RepositoryError(400, 'This connection uses the existing public API; it does not use a source snapshot.');
     const source = await sources.import(req.params.id, req.body);
     res.status(201).json({ id: source.id, head: source.head, branch: source.branch, importedAt: source.importedAt, message: 'Website source saved. Administrator sign-in and publication remain separate.' });
   });
@@ -63,8 +69,11 @@ export function repositoryRoutes(store: ContentStore, options: { workspace: stri
     const targetKey = z.string().min(1).parse(req.query.target);
     const target = item.targets.find(target => target.key === targetKey);
     if (!target) throw new RepositoryError(400, 'Select a configured website or country.');
+    if (item.id === 'ocenagor-venues') return res.json({ articles: await listVenueArticles(targetKey, options.request), sourceHash: '', message: 'Live public blog API · up to 25 latest published articles. Empty means no public articles were returned; editor access remains separate.' });
     if (item.kind === 'database') {
-      try { const env = await databaseEnvironment(item.id, options.workspace, options.env, rootFor); return res.json({ articles: item.id === 'mediasped' ? await listMediaspedArticles(targetKey, env, options.request) : await listTrgovinaArticles(targetKey, env, options.request), sourceHash: '', message: 'Published database articles; not static buying guides.' }); }
+      try { let env = await databaseEnvironment(item.id, options.workspace, options.env, rootFor);
+        if (item.id === 'trgovina') { const status = await trgovinaSessions.status(req); if (status.authenticated && status.admin) env = (await trgovinaSessions.resolve(req)).env; else { env = { ...env }; delete env.TRGOVINA_SUPABASE_ACCESS_TOKEN; } }
+        return res.json({ articles: item.id === 'mediasped' ? await listMediaspedArticles(targetKey, env, options.request) : await listTrgovinaArticles(targetKey, env, options.request), sourceHash: '', message: 'Published database articles; not static buying guides.' }); }
       catch (error) { if (error instanceof TrgovinaReadError) throw new RepositoryError(409, error.message); throw new RepositoryError(409, 'Could not read the database blog. Check its public Supabase configuration and network access. Repository access does not grant database admin access.'); }
     }
     const adapter = gitAdapters[item.id];
@@ -78,11 +87,16 @@ export function repositoryRoutes(store: ContentStore, options: { workspace: stri
   });
   router.post('/repositories/:id/test-connection', async (req, res) => {
     const item = definition(req.params.id);
+    if (item.id === 'ocenagor-venues') {
+      const targetKey = z.string().parse(req.body?.targetKey);
+      const articles = await listVenueArticles(targetKey, options.request);
+      return res.json({ readable: true, authenticated: false, admin: false, message: `The existing customer blog API responded. ${articles.length} published articles returned. This does not grant editor or publishing access.` });
+    }
     if (item.id === 'mediasped') {
       const status = await mediaspedSessions.status(req);
       return res.json({ ...status, configured: status.authenticated });
     }
-    if (item.kind === 'database') { const env = await databaseEnvironment(item.id, options.workspace, options.env, rootFor); return res.json(await testTrgovinaConnection(env, options.request)); }
+    if (item.id === 'trgovina') { const status = await trgovinaSessions.status(req); return res.json({ ...status, configured: status.authenticated }); }
     if (item.kind === 'empty') throw new RepositoryError(409, 'This repository has no website code yet.');
     const root = await rootFor(item.id);
     const identity = await gitIdentity(root);
@@ -98,16 +112,16 @@ export function repositoryRoutes(store: ContentStore, options: { workspace: stri
     const draft = z.object({ title: plain.max(250), slug: z.string().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/).max(200), excerpt: z.string().trim().min(1, 'Add a short description to this post before preparing a repository change.').max(1000).refine(value => !value.includes('<'), 'Use plain text in the short description.'), content: plain }).parse(post);
     // Never interpolate unvalidated metadata into executable source or markup.
     if (JSON.stringify(input.metadata).includes('<')) throw new RepositoryError(400, 'Use plain-text metadata without < characters.');
-    const root = await rootFor(item.id);
-    const identity = await gitIdentity(root);
+    const root = item.id === 'ocenagor-venues' ? '' : await rootFor(item.id);
+    const identity = item.id === 'ocenagor-venues' ? { head: venueHead } : await gitIdentity(root);
     if (identity.head !== input.expectedHead) throw new RepositoryError(409, 'The repository changed. Reload its articles before preparing a change.');
     let artifact: string, relativePath: string, articleUrl: string, sourceHash = '';
     const format = item.kind === 'database' ? 'database-draft' : 'git-patch';
     if (item.kind === 'database') {
       if (item.id === 'mediasped') await assertMediaspedSourceSlugAvailable(root, draft.slug);
-      const payload = item.id === 'mediasped' ? prepareMediaspedDraft(draft, target.key, input.metadata) : prepareTrgovinaDraft(draft, target.key);
+      const payload = item.id === 'mediasped' ? prepareMediaspedDraft(draft, target.key, input.metadata) : item.id === 'ocenagor-venues' ? prepareVenueDraft(draft, target.key) : prepareTrgovinaDraft(draft, target.key);
       artifact = JSON.stringify(payload, null, 2) + '\n';
-      relativePath = item.id === 'mediasped' ? 'public.blog_posts' : 'public.posts'; articleUrl = `${target.url}/blog/${draft.slug}${item.id === 'mediasped' ? '/' : ''}`;
+      relativePath = item.id === 'mediasped' ? 'public.blog_posts' : item.id === 'ocenagor-venues' ? 'public.tenant_blog_posts' : 'public.posts'; articleUrl = `${target.url}/blog/${draft.slug}${item.id === 'mediasped' ? '/' : ''}`;
     } else {
       const adapter = gitAdapters[item.id];
       if (!adapter) throw new RepositoryError(400, 'This repository has no supported content adapter.');
@@ -132,16 +146,17 @@ export function repositoryRoutes(store: ContentStore, options: { workspace: stri
   router.post('/repository-changes/:id/save-draft', async (req, res) => {
     const change = await stored(() => store.repositoryChange(req.params.id));
     if (!change) throw new RepositoryError(404, 'Prepared draft not found.');
-    if (change.repositoryId !== 'mediasped' || change.format !== 'database-draft') throw new RepositoryError(400, 'This connection requires a reviewed Git/deployment or external admin workflow.');
+    if (!['mediasped', 'trgovina'].includes(change.repositoryId) || change.format !== 'database-draft') throw new RepositoryError(400, 'This connection requires a reviewed Git/deployment or external admin workflow.');
     const root = await rootFor(change.repositoryId);
     const payload = JSON.parse(change.artifact);
-    await assertMediaspedSourceSlugAvailable(root, payload.slug);
-    const connection = await mediaspedSessions.resolve(req);
+    if (change.repositoryId === 'mediasped') await assertMediaspedSourceSlugAvailable(root, payload.slug);
+    const connection = await (change.repositoryId === 'mediasped' ? mediaspedSessions : trgovinaSessions).resolve(req);
     // Never overwrite an existing article or turn a draft into a publication.
-    await createMediaspedDraft(payload, connection.env, connection.request);
+    if (change.repositoryId === 'mediasped') await createMediaspedDraft(payload, connection.env, connection.request);
+    else await createTrgovinaDraft(payload, connection.env, connection.request);
     const saved = { ...change, remoteDraftSavedAt: new Date().toISOString() };
     await stored(() => store.putRepositoryChange(saved));
-    res.json({ change: publicChange(saved), message: 'Unpublished website draft saved. Review and publish it through the existing Mediašped editor.' });
+    res.json({ change: publicChange(saved), message: `Unpublished website draft saved. Review and publish it through the existing ${change.repositoryId === 'mediasped' ? 'Mediašped' : 'Trgovina'} editor.` });
   });
   router.get('/repository-changes/:id/download', async (req, res) => {
     const item = await stored(() => store.repositoryChange(req.params.id));
