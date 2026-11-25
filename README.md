@@ -26,6 +26,7 @@ Production mode still runs a **single-user local application**, not an authentic
 ## What works
 
 - Create, edit, search, filter, delete, and export plain-text posts.
+- Use workspace settings to save a name in this browser and export posts, website settings, and publication records as JSON. The export excludes account sessions and prepared repository artifacts; it is not a full database backup.
 - Browse inspected repository content and prepare downloadable Git patches or unpublished database JSON drafts. Preparation saves an artifact in Blog Machine; it does not edit website source, commit, push, deploy, or write to a website database.
 - Connect an existing Mediašped administrator account from the hub, then use the separate **Save website draft** action after verification. This inserts an unpublished draft into its existing Supabase editor; it never overwrites an article or publishes it. Live administrator login and a real remote draft save remain unvalidated until you sign in.
 - Save drafts in SQLite and publish one post to multiple selected destinations.
