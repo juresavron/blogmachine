@@ -21,6 +21,8 @@ npm run build   # Type checking and production frontend build
 npm start       # Serve the built app and API on port 3001
 ```
 
+For a reusable cloud workspace, see [Cloud development setup](docs/cloud-setup.md) for installation, startup, readiness checks, and optional integrations.
+
 Production mode still runs a **single-user local application**, not an authenticated public service. Do not expose it to the public internet without adding authentication and access controls.
 
 ## What works
