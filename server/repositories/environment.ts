@@ -6,11 +6,11 @@ import { readLiteralVariable } from './source.js';
 
 // These values are publishable configuration already shipped by the website.
 // Never return them through the browser API or store admin tokens in source.
-export async function databaseEnvironment(id: string, workspace: string, env: NodeJS.ProcessEnv): Promise<NodeJS.ProcessEnv> {
+export async function databaseEnvironment(id: string, workspace: string, env: NodeJS.ProcessEnv, repositoryRoot?: (id: string) => Promise<string>): Promise<NodeJS.ProcessEnv> {
   const result = { ...env };
   if (id !== 'mediasped' && id !== 'trgovina') return result;
   try {
-    const root = await checkedRepositoryRoot(workspace, id);
+    const root = await (repositoryRoot ? repositoryRoot(id) : checkedRepositoryRoot(workspace, id));
     const relativePath = id === 'mediasped' ? 'src/integrations/supabase/client.ts' : 'wrangler.jsonc';
     const file = await realpath(resolve(root, relativePath));
     if (file !== resolve(root, relativePath)) return result;
@@ -31,3 +31,4 @@ export async function databaseEnvironment(id: string, workspace: string, env: No
   } catch { /* A missing checkout cannot grant database access. */ }
   return result;
 }
+

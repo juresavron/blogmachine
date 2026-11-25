@@ -20,6 +20,20 @@ The hub contains nine entries. Repository identities below are under `juresavron
 
 There are four Git adapters and two database profiles. An available checkout establishes source access, not database administrator access, a live website connection, or a successful production deployment. Trgovina's `vrecke` tenant is marked pre-launch; production custom-domain routing is unverified.
 
+## Hosted source connections
+
+The hosted app does not have sibling repository checkouts. Import a source snapshot using **Repository connections → select website → Source snapshot (JSON)**. Blog Machine accepts only the fixed adapter files, checks their Git blob hashes, and parses static content without executing website code. Ocenagor image files are represented by original Git path/hash/size metadata; their binary data is not copied.
+
+Snapshots are stored in the private workspace database, separate from this public GitHub repository and frontend assets. They survive deployments and server restarts. The displayed branch and commit describe the imported revision, not a live GitHub sync. Export and import a fresh snapshot after website changes. Applying any prepared patch still requires checking the current destination source and running its build gates.
+
+From a trusted workspace with the website checkout, export a snapshot with:
+
+```sh
+node --import tsx scripts/export-source.ts --id mediasped --workspace /workspace
+```
+
+Use IDs `mediasped`, `ocenagor`, `logistiscworld`, `onlyworld`, `lumina`, or `trgovina`. The exporter reads committed content from the verified repository origin. Its default `source-snapshots/` output is ignored by Git. Keep these files private. Administrator sessions and credentials are not included, and importing source never publishes an article or creates a website draft.
+
 ## Prepare and review a change
 
 1. Save a Blog Machine post with a title, slug, short description, and body. Although the general editor allows an empty short description, repository preparation requires one. Use lowercase words separated by hyphens for the slug and plain text without literal `<` characters. Body lines beginning with `## ` become section headings.
@@ -86,3 +100,4 @@ Create an application password for an account permitted to publish, restart the 
 Publishing access is separate from Google access. Save the exact verified Search Console property for the destination and configure `GOOGLE_ACCESS_TOKEN` securely with the `https://www.googleapis.com/auth/webmasters` scope and property access. Google API access requires `searchconsole.googleapis.com` and `www.googleapis.com`. Refresh the short-lived token externally.
 
 Blog Machine can inspect actual published URLs and submit a sitemap the website already serves. It does not generate a sitemap or force indexing. Demo publications cannot be inspected or submitted. LogisticsWorld's existing global `noindex, nofollow` must be addressed through a reviewed site launch change before indexing can work.
+

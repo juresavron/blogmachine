@@ -1,3 +1,4 @@
+import { importedIdentity } from './snapshot-identity.js';
 import { readFile, realpath, stat } from 'node:fs/promises';
 import { isAbsolute, relative, resolve } from 'node:path';
 import { z } from 'zod';
@@ -92,6 +93,11 @@ function sectionsFor(draft: ContentDraft) {
 }
 async function validateImageAssets(root: string, image: z.infer<typeof imageSchema>) {
   for (const path of [image.src, image.small, image.share]) {
+    const imported = importedIdentity(root);
+    if (imported) {
+      if (!imported.assets.some(asset => asset.path === `public${path}` && asset.size > 0)) throw new Error('The selected image is missing from this source snapshot.');
+      continue;
+    }
     const file = await containedPath(root, `public${path}`);
     if (!(await stat(file)).isFile()) throw new Error('The selected blog image must point to existing image files.');
   }
@@ -156,3 +162,4 @@ export const ocenagorAdapter: GitAdapter = {
     return { relativePath: contentPath, before, after, articleUrl: `${target.url}/blog/${draft.slug}`, ...(additionalChanges ? { additionalChanges } : {}) };
   },
 };
+

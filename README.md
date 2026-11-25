@@ -40,7 +40,7 @@ For hosted production, see [Netlify deployment](docs/netlify-deployment.md). It 
 
 ## Connect your websites
 
-Use **Repository connections** for the inspected Mediašped, OcenaGor.si, LogisticsWorld, Onlyworld, Lumina, and Trgovina content workflows. Mediašped uses Supabase; OcenaGor.si uses static source files. Their adapters are implemented, while live database access and production deployments are separate prerequisites. Pultaro, Agencija delavci, and Klicni center remain empty placeholders. No per-site MCP server is required.
+Use **Repository connections** for the inspected Mediašped, OcenaGor.si, LogisticsWorld, Onlyworld, Lumina, and Trgovina content workflows. Mediašped uses Supabase; OcenaGor.si uses static source files. Their adapters are implemented. Hosted connections accept source snapshots stored privately in Postgres; database administrator access and production publication are separate prerequisites. Pultaro, Agencija delavci, and Klicni center remain empty placeholders. No per-site MCP server is required.
 
 Save a post with a title, lowercase hyphenated slug, short description, and body before preparing it. The description is optional in the general post editor but required by the repository hub. Use `## Section heading` lines to separate body sections. The hub checks the checkout HEAD and, for Git content, the loaded source hash before preparing a change. Generated source is checked for syntax and schema compatibility; this is not a full build of the destination website.
 
@@ -80,3 +80,4 @@ The database lives at `data/blogmachine.sqlite` by default; override with `DATAB
 Deleting a post or website removes local records only; remote WordPress articles remain published. There is no background scheduler, AI generation, or automatic translation. Git patches require review, destination-site checks, and a separate deployment workflow. Trgovina exports database drafts only; Mediašped remote draft insertion requires the explicit action described above.
 
 Outbound content changes occur only through explicit actions: WordPress **Publish post**, Mediašped **Save website draft**, or sitemap submission. Login, connection tests, and article lists also make network requests, without creating content. Automated authentication and write tests use mocked external services; a live Mediašped public article read succeeded, but no actual authenticated draft write or website deployment has been performed. Sign in securely through **Connect account** to validate the Mediašped administrator workflow; other live integrations still need their own credentials and Google property access.
+

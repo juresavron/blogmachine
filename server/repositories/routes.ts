@@ -1,3 +1,5 @@
+import { createRepositorySources } from './snapshots.js';
+import { importedIdentity } from './snapshot-identity.js';
 import { Router } from 'express';
 import { createHash, randomUUID } from 'node:crypto';
 import { readFile, realpath } from 'node:fs/promises';
@@ -30,7 +32,9 @@ const publicChange = ({ artifact: _artifact, ...item }: PreparedChange) => ({ ..
 
 export function repositoryRoutes(store: ContentStore, options: { workspace: string; env: NodeJS.ProcessEnv; request?: typeof fetch; now?: () => number }) {
   const router = Router();
-  const mediaspedSessions = createMediaspedSessions(options);
+  const sources = createRepositorySources(store, options.workspace);
+  const rootFor = (id: string) => sources.root(id);
+  const mediaspedSessions = createMediaspedSessions({ ...options, repositoryRoot: rootFor });
   router.use(mediaspedSessions.router);
   async function source(root: string, relativePath: string) {
     const path = await realpath(resolve(root, relativePath));
@@ -44,10 +48,14 @@ export function repositoryRoutes(store: ContentStore, options: { workspace: stri
   router.get('/repositories', async (_req, res) => {
     const repositories = await Promise.all(definitions().map(async item => {
       if (item.kind === 'empty') return { ...item, available: false, branch: null, head: null, message: 'Empty repository; no content adapter.' };
-      try { const root = await checkedRepositoryRoot(options.workspace, item.id); return { ...item, ...await gitIdentity(root), available: true, message: item.kind === 'database' ? 'Schema inspected; database access is separate.' : 'Local source is available. Live deployment is not verified.' }; }
+      try { const root = await rootFor(item.id); return { ...item, ...await gitIdentity(root), available: true, source: importedIdentity(root) ? 'snapshot' : 'checkout', importedAt: importedIdentity(root)?.importedAt, message: importedIdentity(root) ? 'Saved source snapshot. Refresh it after website source changes; live publication and administrator access are separate.' : item.kind === 'database' ? 'Schema inspected; database access is separate.' : 'Local source is available. Live deployment is not verified.' }; }
       catch { return { ...item, available: false, branch: null, head: null, message: 'Repository checkout is unavailable. Restore it before preparing content.' }; }
     }));
     res.json({ repositories, changes: (await stored(() => store.repositoryChanges())).map(publicChange) });
+  });
+  router.post('/repositories/:id/source', async (req, res) => {
+    const source = await sources.import(req.params.id, req.body);
+    res.status(201).json({ id: source.id, head: source.head, branch: source.branch, importedAt: source.importedAt, message: 'Website source saved. Administrator sign-in and publication remain separate.' });
   });
   router.get('/repositories/:id/articles', async (req, res) => {
     const item = definition(req.params.id);
@@ -55,15 +63,15 @@ export function repositoryRoutes(store: ContentStore, options: { workspace: stri
     const target = item.targets.find(target => target.key === targetKey);
     if (!target) throw new RepositoryError(400, 'Select a configured website or country.');
     if (item.kind === 'database') {
-      try { const env = await databaseEnvironment(item.id, options.workspace, options.env); return res.json({ articles: item.id === 'mediasped' ? await listMediaspedArticles(targetKey, env, options.request) : await listTrgovinaArticles(targetKey, env, options.request), sourceHash: '', message: 'Published database articles; not static buying guides.' }); }
+      try { const env = await databaseEnvironment(item.id, options.workspace, options.env, rootFor); return res.json({ articles: item.id === 'mediasped' ? await listMediaspedArticles(targetKey, env, options.request) : await listTrgovinaArticles(targetKey, env, options.request), sourceHash: '', message: 'Published database articles; not static buying guides.' }); }
       catch { throw new RepositoryError(409, 'Could not read the database blog. Check its public Supabase configuration and network access. Repository access does not grant database admin access.'); }
     }
     const adapter = gitAdapters[item.id];
     if (!adapter) throw new RepositoryError(400, 'This repository has no supported content adapter.');
-    const root = await checkedRepositoryRoot(options.workspace, item.id);
+    const root = await rootFor(item.id);
     const before = await snapshot(root, target);
     const articles = await adapter.list(root, targetKey);
-    res.json({ articles, sourceHash: before.hash, message: 'Read from the local checkout; publication on the live website is not verified.' });
+    res.json({ articles, sourceHash: before.hash, message: 'Read from the selected source revision; publication on the live website is not verified.' });
   });
   router.post('/repositories/:id/test-connection', async (req, res) => {
     const item = definition(req.params.id);
@@ -71,10 +79,10 @@ export function repositoryRoutes(store: ContentStore, options: { workspace: stri
       const status = await mediaspedSessions.status(req);
       return res.json({ ...status, configured: status.authenticated });
     }
-    if (item.kind === 'database') { const env = await databaseEnvironment(item.id, options.workspace, options.env); return res.json(await testTrgovinaConnection(env, options.request)); }
+    if (item.kind === 'database') { const env = await databaseEnvironment(item.id, options.workspace, options.env, rootFor); return res.json(await testTrgovinaConnection(env, options.request)); }
     if (item.kind === 'empty') throw new RepositoryError(409, 'This repository has no website code yet.');
-    const root = await checkedRepositoryRoot(options.workspace, item.id);
-    res.json({ readable: true, ...await gitIdentity(root), message: 'Repository checkout is readable. This does not verify deployment or live publishing access.' });
+    const root = await rootFor(item.id);
+    res.json({ readable: true, ...await gitIdentity(root), message: 'Website source is readable. This does not verify deployment or live publishing access.' });
   });
   router.post('/repositories/:id/prepare', async (req, res) => {
     const item = definition(req.params.id);
@@ -86,7 +94,7 @@ export function repositoryRoutes(store: ContentStore, options: { workspace: stri
     const draft = z.object({ title: plain.max(250), slug: z.string().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/).max(200), excerpt: z.string().trim().min(1, 'Add a short description to this post before preparing a repository change.').max(1000).refine(value => !value.includes('<'), 'Use plain text in the short description.'), content: plain }).parse(post);
     // Never interpolate unvalidated metadata into executable source or markup.
     if (JSON.stringify(input.metadata).includes('<')) throw new RepositoryError(400, 'Use plain-text metadata without < characters.');
-    const root = await checkedRepositoryRoot(options.workspace, item.id);
+    const root = await rootFor(item.id);
     const identity = await gitIdentity(root);
     if (identity.head !== input.expectedHead) throw new RepositoryError(409, 'The repository changed. Reload its articles before preparing a change.');
     let artifact: string, relativePath: string, articleUrl: string, sourceHash = '';
@@ -121,7 +129,7 @@ export function repositoryRoutes(store: ContentStore, options: { workspace: stri
     const change = await stored(() => store.repositoryChange(req.params.id));
     if (!change) throw new RepositoryError(404, 'Prepared draft not found.');
     if (change.repositoryId !== 'mediasped' || change.format !== 'database-draft') throw new RepositoryError(400, 'This connection requires a reviewed Git/deployment or external admin workflow.');
-    const root = await checkedRepositoryRoot(options.workspace, change.repositoryId);
+    const root = await rootFor(change.repositoryId);
     const payload = JSON.parse(change.artifact);
     await assertMediaspedSourceSlugAvailable(root, payload.slug);
     const connection = await mediaspedSessions.resolve(req);
@@ -148,3 +156,4 @@ export function repositoryRoutes(store: ContentStore, options: { workspace: stri
   });
   return router;
 }
+
