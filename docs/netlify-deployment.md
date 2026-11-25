@@ -23,7 +23,7 @@ Netlify's filesystem is temporary and must not hold the production SQLite databa
 
 Credentials belong in Netlify's runtime environment settings. Do not put them in source or frontend build variables. Configure the matching WordPress credential prefix and exact URL, or the Google access token, only when enabling those integrations. A presence indicator does not establish live account access.
 
-Administrator sessions for optional Mediašped connections remain in server memory. Reconnect after deployments, scale-to-zero restarts, or session expiration. The production bundle does not include sibling website checkouts, so the repository hub reports those sources as unavailable until a separate source-packaging workflow is configured. The standalone WordPress, manual-export, and demo workflows do not need those checkouts.
+Administrator sessions for optional Mediašped connections remain in server memory. Reconnect after deployments, scale-to-zero restarts, or session expiration. The production bundle does not include sibling website checkouts. The OcenaGor family can read its private source through a scoped server-side GitHub token; see [source access](ocenagor-family.md). Other source adapters report missing checkouts until separately configured. The standalone WordPress, manual-export, and demo workflows do not need those checkouts.
 
 ## Validation
 

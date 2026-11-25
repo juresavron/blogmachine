@@ -224,3 +224,55 @@
 @media (prefers-reduced-motion: reduce) {
   .repo-catalog-stat:hover:not(:disabled) { transform: none; }
 }
+
+/* OcenaGor connects language editions without implying automatic translation. */
+.repo-family-overview { padding-top: 20px; margin-top: 19px; border-top: 1px solid #e7ecdf; }
+.repo-family-overview>div:first-child { display: flex; align-items: center; gap: 8px; color: #526b3c; }
+.repo-family-overview>div:first-child strong { font-size: 13px; line-height: 1.7; font-weight: 600; }
+.repo-family-overview>p { margin: 6px 0 17px; color: #66735b; font-size: 12px; line-height: 1.8; }
+.repo-family-destinations { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 9px; }
+.repo-family-destinations>button { display: flex; flex-direction: column; align-items: flex-start; text-align: left; border: 1px solid #dfe6d3; background: #fbfcf7; color: #526a40; border-radius: 9px; padding: 14px 12px; cursor: pointer; transition: background .15s, border-color .15s; }
+.repo-family-destinations>button:hover:not(:disabled) { border-color: #a6bc8c; background: #f1f6e8; }
+.repo-family-destinations>button.repo-family-active { border-color: #99b377; background: #edf4e0; box-shadow: inset 0 2px 0 #72914d; }
+.repo-family-destinations>button:disabled { opacity: .6; cursor: wait; }
+.repo-family-destinations>button>span { font-size: 10px; letter-spacing: .7px; background: #e9efdd; border-radius: 4px; padding: 3px 6px; margin-bottom: 10px; }
+.repo-family-destinations>button>strong { font-size: 12px; line-height: 1.7; font-weight: 650; overflow-wrap: anywhere; }
+.repo-family-destinations>button>small { font-size: 10px; line-height: 1.7; color: #58694c; margin-top: 4px; }
+.repo-family-destinations>button:focus-visible, .repo-language-links>button:focus-visible, .repo-article-seo>summary:focus-visible { outline: 3px solid #a0b885; outline-offset: 3px; }
+.repo-language-writing-note { display: flex; gap: 10px; border: 1px solid #dfe7d3; border-radius: 8px; padding: 15px; background: #f4f8ed; margin-bottom: 23px; color: #607a46; }
+.repo-language-writing-note>svg { flex-shrink: 0; margin-top: 2px; }
+.repo-language-writing-note>p { font-size: 12px; line-height: 1.8; color: #607151; margin: 0; }
+.repo-language-writing-note strong { color: #4d6938; font-weight: 650; }
+.repo-language-links { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin: 13px 0 9px; color: #586e44; }
+.repo-article-list .repo-language-links>span { font-size: 10px; display: inline-flex; width: auto; }
+.repo-language-links>button, .repo-language-links>.repo-version-missing { display: inline-flex; align-items: center; gap: 4px; font: inherit; font-size: 10px; border: 1px solid #dce6cc; background: #f3f7eb; color: #4f6836; border-radius: 4px; padding: 4px 6px; cursor: pointer; }
+.repo-language-links>button.repo-version-current { background: #e6eed8; border-color: #bccda5; color: #4c6d30; }
+.repo-article-list .repo-language-links>.repo-version-missing { color: #6c6857; background: #f5f4ed; border-color: #e7e5da; cursor: default; }
+.repo-article-seo { margin-top: 12px; }
+.repo-article-seo>summary { font-size: 11px; color: #667b50; cursor: pointer; padding: 3px 0; }
+.repo-article-seo dl { margin: 12px 0 0; padding: 13px; background: #f6f8f0; border: 1px solid #e6ebdc; border-radius: 7px; display: grid; gap: 11px; }
+.repo-article-seo dt { font-size: 10px; line-height: 1.7; color: #616e53; }
+.repo-article-seo dd { font-size: 11px; line-height: 1.8; color: #4f6640; margin: 3px 0 0; overflow-wrap: anywhere; }
+.repo-source-relationship { padding: 16px; border: 1px solid #dfe8d1; border-radius: 8px; background: #f7f9f2; display: grid; gap: 5px; margin-bottom: 17px; }
+.repo-source-relationship>span { color: #5e6e51; font-size: 10px; line-height: 1.8; text-transform: uppercase; letter-spacing: .7px; }
+.repo-source-relationship>strong { color: #506c39; font-size: 12px; line-height: 1.8; font-weight: 550; }
+.repo-source-relationship>code { font-size: 10px; line-height: 1.8; color: #5d714c; overflow-wrap: anywhere; }
+.repo-source-relationship>svg { color: #8ea478; transform: rotate(90deg); margin: 8px 0; }
+@media(max-width: 640px) {
+  .repo-family-destinations { grid-template-columns: 1fr; }
+  .repo-family-destinations>button { padding: 12px 14px; display: grid; grid-template-columns: 35px minmax(0,1fr); gap: 2px 11px; align-items: center; }
+  .repo-family-destinations>button>span { grid-row: 1/3; margin: 0; text-align: center; padding: 6px; }
+  .repo-family-destinations>button>small { margin-top: 0; }
+  .repo-family-destinations>button>strong { font-size: 13px; }
+  .repo-language-links { gap: 7px; }
+  .repo-language-links>button { padding: 6px 8px; }
+}
+.repo-source-method { display: inline-flex; align-items: center; gap: 5px; padding: 5px 8px; margin-top: 9px; color: #4e6636; background: #f1f5e9; border: 1px solid #e2ead6; border-radius: 5px; font-size: 10px; }
+.repo-missing-versions { border-top: 1px solid #e5ebdc; margin-top: 20px; padding-top: 17px; }
+.repo-missing-versions>summary { color: #6c774e; font-size: 12px; line-height: 1.8; cursor: pointer; }
+.repo-missing-versions>summary>svg { vertical-align: middle; margin-right: 7px; }
+.repo-missing-versions>p { color: #63744f; font-size: 11px; line-height: 1.8; margin: 13px 0; }
+.repo-missing-versions>ul { margin: 0; padding: 0; list-style: none; display: grid; gap: 11px; max-height: 250px; overflow: auto; }
+.repo-missing-versions li { border: 1px solid #e6eadc; border-radius: 6px; background: #fafbf6; padding: 11px 13px; }
+.repo-missing-versions li>strong { display: block; font-size: 11px; font-weight: 550; line-height: 1.8; color: #60734b; }
+.repo-missing-versions li>code { display: block; font-size: 10px; line-height: 1.8; color: #667b51; overflow-wrap: anywhere; }
