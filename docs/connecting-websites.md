@@ -4,7 +4,7 @@ Blog Machine has two separate workflows. **Repository connections** reads the in
 
 ## Repository connections
 
-The hub contains nine entries. Repository identities below are under `juresavron/` on GitHub. Source article counts describe the inspected checkout, not verified live publication.
+The hub contains ten entries. Repository identities below are under `juresavron/` on GitHub. Source article counts describe the inspected checkout, not verified live publication.
 
 | Website / repository | Content source and implemented behavior | Remaining publication step |
 | --- | --- | --- |
@@ -13,12 +13,12 @@ The hub contains nine entries. Repository identities below are under `juresavron
 | LogisticsWorld / `logistiscworld` | Four static articles in `src/data/blog.ts`, serving `logisticsworld.eu`; Git patch preparation | Review site checks and explicitly deploy the Cloudflare Worker. Public homepage and article routes currently return `index, follow`; verify each released URL and its metadata. This is not the Mediašped blog source. |
 | Onlyworld / `onlyworld` | Static content for 25 configured country/language markets; Git patch preparation | Review the correct market and language, run site checks, and merge through the actual deployment workflow. Pushes to `main` trigger automatic deployment. |
 | Lumina Pergole / `lumina` | Three static guides in `src/data/guides.ts`, targeting `pergola-lumina.si/nasveti/`; Git patch preparation | Netlify project `luminakoper` deploys `main` to `pergola-lumina.si`. Use the production source snapshot, run website checks, and review the patch before merging. The GitHub default branch is a separate development branch. |
-| Trgovina / `trgovina` | Supabase `public.posts` for `bazen` and `vrecke`; published-article listing, read-only admin test, and draft JSON export | Create the draft through the authorized external admin workflow. Blog Machine does not write Trgovina rows. Static buying guides and comparison pages are separate from this database blog. |
+| Trgovina / `trgovina` | Supabase `public.posts` for `bazen` and `vrecke`; published-article listing, read-only admin test, and draft JSON export | Create the draft through the authorized external admin workflow. The separate Save website draft action inserts only an unpublished row after administrator verification. Static buying guides and comparison pages are separate from this database blog. |
 | Pultaro / `pultaro` | Empty repository placeholder | Build a website and content storage first. |
 | Agencija delavci / `agencijadelavci` | Empty repository placeholder | Confirm its purpose and build its blog first. |
 | Klicni center / `klicnicenter` | Empty repository placeholder | Build a public website and blog first. |
 
-There are four Git adapters and two database profiles. An available checkout establishes source access, not database administrator access, a live website connection, or a successful production deployment. Trgovina's `vrecke` tenant is marked pre-launch; production custom-domain routing is unverified.
+There are four Git adapters and three database/API profiles. An available checkout establishes source access, not database administrator access, a live website connection, or a successful production deployment. Trgovina's `vrecke` tenant is marked pre-launch; production custom-domain routing is unverified.
 
 ## Hosted source connections
 
@@ -82,7 +82,7 @@ Trgovina uses Supabase project `cybwzhgretztcjfdefoy.supabase.co`. Its two desti
 
 Published article listing reads `public.posts`, filtered to the chosen shop. To test authenticated administrator access, securely configure `TRGOVINA_SUPABASE_ACCESS_TOKEN` with a signed-in user's access token. The connection test checks identity and the existing admin RPC without changing content; service-role credentials are unsupported. Refresh sessions externally. Live database access remains unvalidated.
 
-Preparation exports JSON with a stable UUID, `status: "draft"`, and `published_at: null`. There is no **Save website draft** action for Trgovina. Use its authorized external admin workflow to create the draft. Existing static buying guides and comparisons are not rows in this blog and are not managed by this connector.
+Preparation exports JSON with a stable UUID, `status: "draft"`, and `published_at: null`. Connect an existing administrator using the email sign-in option, then use the separate **Save website draft** action. It inserts only an unpublished row, never updates an existing article, and safely checks the same stable ID after a retry. Publication remains in the authorized shop editor. Existing static buying guides and comparisons are not rows in this blog and are not managed by this connector.
 
 ## Checkouts and cloud environment
 
@@ -104,3 +104,9 @@ Publishing access is separate from Google access. Save the exact verified Search
 
 Blog Machine can inspect actual published URLs and submit a sitemap the website already serves. It does not generate a sitemap or force indexing. Demo publications cannot be inspected or submitted. LogisticsWorld's successful public article pages allow indexing; disabled, filtered, or error routes can still use `noindex`. Verify the specific URL before submitting it.
 
+
+## OcenaGor customer websites
+
+The customer website group is separate from the SI/HR/IT marketing-site source adapter. It uses Supabase project `ytdjrgvqsyrinuwrnzbj` and the existing tenant-scoped `tenant_blog_public` RPC. The registry currently includes 23 publicly served company identities, including custom domains and `/book/{company_id}` destinations. Reads return up to 25 latest published articles; null means no public articles were returned, not a verified live blog. The public API key does not grant editor access.
+
+Prepared JSON is unapproved (`approved_at: null`) and unpublished (`status: draft`, `published_at: null`). It is limited to the existing destination company, with no partner selected. The existing company administrator or MFA-verified superadmin workflow is required to save and publish it. Existing automatic publishing settings are unchanged. Update the verified registry when a company’s canonical URL changes or a new website is added.

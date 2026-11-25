@@ -74,7 +74,7 @@ function isServiceRoleCredential(value: string | undefined) {
     return typeof payload === 'object' && payload !== null && 'role' in payload && payload.role === 'service_role';
   } catch { return false; }
 }
-function configuration(env: TrgovinaEnv) {
+export function trgovinaConfiguration(env: TrgovinaEnv) {
   const rawUrl = env.TRGOVINA_SUPABASE_URL?.trim();
   const key = env.TRGOVINA_SUPABASE_ANON_KEY;
   const token = env.TRGOVINA_SUPABASE_ACCESS_TOKEN;
@@ -96,8 +96,8 @@ function requestOptions(headers: Record<string, string>, method: 'GET' | 'POST' 
 
 /** Identity and existing is_admin RPC checks only; neither publishes content. */
 export async function testTrgovinaConnection(env: TrgovinaEnv, request: TrgovinaRequest = fetch): Promise<TrgovinaConnection> {
-  let config: ReturnType<typeof configuration>;
-  try { config = configuration(env); } catch (cause) {
+  let config: ReturnType<typeof trgovinaConfiguration>;
+  try { config = trgovinaConfiguration(env); } catch (cause) {
     return { configured: false, authenticated: false, admin: false, message: cause instanceof Error ? cause.message : 'Trgovina server configuration is incomplete.' };
   }
   if (!config.token) return { configured: false, authenticated: false, admin: false, message: 'Set TRGOVINA_SUPABASE_ACCESS_TOKEN on the server to verify an authenticated admin connection. The publishable key alone cannot authorize publishing.' };
@@ -127,7 +127,7 @@ export async function testTrgovinaConnection(env: TrgovinaEnv, request: Trgovina
 /** Read published rows only, always filtered to a known shop. No token is required for public reads. */
 export async function listTrgovinaArticles(targetKey: string, env: TrgovinaEnv, request: TrgovinaRequest = fetch): Promise<ArticleSummary[]> {
   const target = targetFor(targetKey);
-  const config = configuration(env);
+  const config = trgovinaConfiguration(env);
   const query = new URLSearchParams({ shop_id: `eq.${target.key}`, status: 'eq.published', select: 'id,slug,title,excerpt', order: 'published_at.desc', limit: '100' });
   const headers: Record<string, string> = { apikey: config.key, Accept: 'application/json' };
   if (config.token) headers.Authorization = `Bearer ${config.token}`;
@@ -140,5 +140,48 @@ export async function listTrgovinaArticles(targetKey: string, env: TrgovinaEnv, 
     rows = z.array(z.object({ slug: z.string().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/).max(200), title: z.string(), excerpt: z.string() })).parse(await response.json());
   } catch { throw new Error('Supabase returned an unrecognized article list.'); }
   return rows.map(row => ({ slug: row.slug, title: row.title, description: row.excerpt, url: `${target.url}${target.contentPath}/${row.slug}` }));
+}
+
+const draftSchema = z.object({
+  id: z.uuid(), shop_id: z.enum(['bazen', 'vrecke']),
+  slug: contentSchema.shape.slug, title: contentSchema.shape.title,
+  excerpt: contentSchema.shape.excerpt,
+  body: z.object({ source: z.string().trim().min(1).max(200_000).refine(value => !value.includes('<'), 'Use plain text.') }).strict(),
+  cover_url: z.null(), cover_alt: z.literal(''), status: z.literal('draft'), published_at: z.null(),
+}).strict();
+
+/** Explicit, stable-ID insert only; never updates a row or publishes content. */
+export async function createTrgovinaDraft(input: unknown, env: TrgovinaEnv, request: TrgovinaRequest = fetch): Promise<void> {
+  const payload = draftSchema.parse(input);
+  const config = trgovinaConfiguration(env);
+  if (config.origin !== 'https://cybwzhgretztcjfdefoy.supabase.co' || !config.token) throw new Error('Connect the existing Trgovina administrator account.');
+  const connection = await testTrgovinaConnection(env, request);
+  if (!connection.authenticated || !connection.admin) throw new Error('Trgovina administrator access was not verified. No draft was saved.');
+  const headers = { apikey: config.key, Authorization: `Bearer ${config.token}`, 'Content-Type': 'application/json', Prefer: 'return=representation' };
+  let response: Response;
+  try { response = await request(`${config.origin}/rest/v1/posts`, { ...requestOptions(headers), method: 'POST', body: JSON.stringify(payload) }); }
+  catch { throw new Error('The Trgovina draft result is unknown. Retry this same prepared draft to check its stable ID.'); }
+  const matches = (value: unknown) => {
+    const parsed = z.array(draftSchema).safeParse(value);
+    return parsed.success && parsed.data.length === 1 && JSON.stringify(parsed.data[0]) === JSON.stringify(payload);
+  };
+  // Select the exact safe payload fields; timestamps and other database columns
+  // never participate in recovery, and a different row cannot be overwritten.
+  const fields = Object.keys(payload).join(',');
+  if (response.ok) {
+    const value: unknown = await response.json().catch(() => null);
+    const rows = z.array(z.object({ id: z.uuid(), shop_id: z.string(), status: z.string() })).safeParse(value);
+    if (rows.success && rows.data.length === 1 && rows.data[0].id === payload.id && rows.data[0].shop_id === payload.shop_id && rows.data[0].status === 'draft') return;
+    throw new Error('The Trgovina draft acknowledgement was not recognized. Retry this same prepared draft to check its stable ID.');
+  }
+  if (response.status === 409) {
+    const query = new URLSearchParams({ id: `eq.${payload.id}`, shop_id: `eq.${payload.shop_id}`, status: 'eq.draft', select: fields });
+    try {
+      const found = await request(`${config.origin}/rest/v1/posts?${query}`, requestOptions(headers));
+      if (found.ok && matches(await found.json())) return;
+    } catch { /* Preserve the prepared stable ID and do not overwrite anything. */ }
+    throw new Error('An existing article conflicts with this draft. Review it in the shop editor; nothing was overwritten.');
+  }
+  throw new Error(`Trgovina refused the draft (HTTP ${response.status}). Check administrator table permissions. Nothing was published.`);
 }
 

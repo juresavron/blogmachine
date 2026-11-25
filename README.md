@@ -2,7 +2,7 @@
 
 One workspace for writing posts, publishing to your websites, and checking Google indexing.
 
-A local application with a React/TypeScript dashboard, Express API, and persistent SQLite storage. The **Repository connections** hub covers nine repositories with four Git content adapters, two database profiles, and three empty placeholders. The separate **Websites** flow includes three clearly labeled demo websites so you can try publishing without credentials.
+A local application with a React/TypeScript dashboard, Express API, and persistent SQLite storage. The **Repository connections** hub covers ten connection groups: four Git content adapters, three database/API profiles, and three empty placeholders. The customer website profile includes 23 existing OcenaGor venue identities. The separate **Websites** flow includes three clearly labeled demo websites so you can try publishing without credentials.
 
 ## Run
 
@@ -30,7 +30,7 @@ For hosted production, see [Netlify deployment](docs/netlify-deployment.md). It 
 - Create, edit, search, filter, delete, and export plain-text posts.
 - Use workspace settings to save a name in this browser and export posts, website settings, and publication records as JSON. The export excludes account sessions and prepared repository artifacts; it is not a full database backup.
 - Browse inspected repository content and prepare downloadable Git patches or unpublished database JSON drafts. Preparation saves an artifact in Blog Machine; it does not edit website source, commit, push, deploy, or write to a website database.
-- Connect an existing Mediašped administrator account from the hub, then use the separate **Save website draft** action after verification. This inserts an unpublished draft into its existing Supabase editor; it never overwrites an article or publishes it. Live administrator login and a real remote draft save remain unvalidated until you sign in.
+- Connect an existing Mediašped administrator account from the hub, then use the separate **Save website draft** action after verification. This inserts an unpublished draft into its existing Supabase editor; it never overwrites an article or publishes it. Administrator sign-in is verified separately from a real remote draft save.
 - Save drafts in SQLite and publish one post to multiple selected destinations.
 - Demo publishing: creates local publication records, without contacting any real website.
 - WordPress publishing: sends escaped plain-text content to the official WordPress REST API using an application password. Known successful publications are updated when you republish. If a create request ends with an uncertain outcome, automatic retries are paused to avoid duplicates; check the WordPress site and reconcile that article before publishing again.
@@ -65,7 +65,7 @@ Access and refresh tokens stay in server memory, and the browser receives only a
 
 Live websites must be reachable over HTTPS. The connector blocks local/private URLs and redirects. Direct connections pin a validated public DNS address. Managed proxy connections use the trusted environment proxy and require an exact website URL binding before sending credentials. If WordPress redirects its API, use the final canonical HTTPS site address.
 
-In a managed cloud environment, the network policy must also allow the hostname of your WordPress website. Google integration needs `searchconsole.googleapis.com` and `www.googleapis.com`. The repository database profiles need `ytmowbzkpofeeocgevyr.supabase.co` (Mediašped) and `cybwzhgretztcjfdefoy.supabase.co` (Trgovina). Saving an environment draft does not apply its network policy or publish its snapshot.
+In a managed cloud environment, the network policy must also allow the hostname of your WordPress website. Google integration needs `searchconsole.googleapis.com` and `www.googleapis.com`. The database/API profiles need `ytmowbzkpofeeocgevyr.supabase.co` (Mediašped), `cybwzhgretztcjfdefoy.supabase.co` (Trgovina), and `ytdjrgvqsyrinuwrnzbj.supabase.co` (OcenaGor customer websites). Saving an environment draft does not apply its network policy or publish its snapshot.
 
 ## Connect Search Console
 
@@ -79,6 +79,12 @@ Use **Search & indexing** to inspect published live URLs or submit a sitemap you
 
 The database lives at `data/blogmachine.sqlite` by default; override with `DATABASE_PATH`. Demo content is seeded once per database. Removing all data in the UI does not reseed it on restart. Back up the SQLite database with SQLite's backup tools, or stop the server before copying its database and WAL files.
 
-Deleting a post or website removes local records only; remote WordPress articles remain published. There is no background scheduler, AI generation, or automatic translation. Git patches require review, destination-site checks, and a separate deployment workflow. Trgovina exports database drafts only; Mediašped remote draft insertion requires the explicit action described above.
+Deleting a post or website removes local records only; remote WordPress articles remain published. There is no background scheduler, AI generation, or automatic translation. Git patches require review, destination-site checks, and a separate deployment workflow. Mediašped and Trgovina remote draft insertion require the explicit Save website draft action and verified administrator access. The OcenaGor customer website connector reads the existing public API and exports unapproved database drafts; authorized editing and publication remain in OcenaGor.
 
-Outbound content changes occur only through explicit actions: WordPress **Publish post**, Mediašped **Save website draft**, or sitemap submission. Login, connection tests, and article lists also make network requests, without creating content. Automated authentication and write tests use mocked external services; a live Mediašped public article read succeeded, but no actual authenticated draft write or website deployment has been performed. Sign in securely through **Connect account** to validate the Mediašped administrator workflow; other live integrations still need their own credentials and Google property access.
+Outbound content changes occur only through explicit actions: WordPress **Publish post**, Mediašped or Trgovina **Save website draft**, or sitemap submission. Login, connection tests, and article lists also make network requests, without creating content. Automated authentication and write tests use mocked external services; a live Mediašped public article read succeeded, but no actual authenticated draft write or website deployment has been performed. Sign in securely through **Connect account** to validate the Mediašped administrator workflow; other live integrations still need their own credentials and Google property access.
+
+## Customer websites and Trgovina
+
+**Repository connections → OcenaGor customer websites** lists the 23 existing customer website identities verified from the platform registry. The connector reads up to 25 latest published articles per selected company through the existing `tenant_blog_public` RPC. A null/empty response does not prove that a live blog page exists. Canonical URL changes fail closed; update the verified registry before preparing content. JSON drafts follow the real tenant table limits, have `status: draft`, and remain unapproved. They do not enable automatic publishing.
+
+**Repository connections → Trgovina** supports an email sign-in code/link for an existing administrator account. It uses the same server-side session protections as Mediašped, with separate provider binding, cookies, and token state. After administrator verification, **Save website draft** inserts an unpublished row with a stable ID. A retry recovers only the identical existing draft and never overwrites an edited or published article. The browser never receives provider tokens. Table grants/RLS can still refuse a connected account; that is reported without exposing provider error bodies.
