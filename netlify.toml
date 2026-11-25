@@ -1,0 +1,16 @@
+[build]
+  command = "npm run build"
+  publish = "dist"
+
+[build.environment]
+  NODE_VERSION = "24.22.3"
+
+[server]
+  region = "fra"
+  size = "small"
+
+[server.scale]
+  max = 1
+
+# The frontend uses hash navigation. Do not add a /* -> /index.html rewrite:
+# rewrite rules run before Netlify Server and would swallow the /api routes.
